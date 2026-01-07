@@ -1,0 +1,77 @@
+[
+  {
+    "timestamp": "2026-01-07T23:14:44.538966",
+    "key": "llm",
+    "old_value": null,
+    "new_value": {
+      "default_model": "llama2:7b",
+      "ollama_url": "http://localhost:11434",
+      "models": {
+        "llama2:7b": {
+          "temperature": 0.7,
+          "max_tokens": 2048,
+          "top_p": 0.9,
+          "context_window": 4096
+        },
+        "codellama:7b": {
+          "temperature": 0.1,
+          "max_tokens": 4096,
+          "top_p": 0.95,
+          "context_window": 16384
+        }
+      }
+    },
+    "user": "system"
+  },
+  {
+    "timestamp": "2026-01-07T23:14:44.538966",
+    "key": "rag",
+    "old_value": null,
+    "new_value": {
+      "similarity_threshold": 0.7,
+      "max_retrieved_docs": 10,
+      "max_context_docs": 5,
+      "chunk_size": 1000,
+      "chunk_overlap": 200
+    },
+    "user": "system"
+  },
+  {
+    "timestamp": "2026-01-07T23:14:44.538966",
+    "key": "chat",
+    "old_value": null,
+    "new_value": {
+      "max_history_size": 50,
+      "max_session_age_days": 30,
+      "cleanup_interval_hours": 24
+    },
+    "user": "system"
+  },
+  {
+    "timestamp": "2026-01-07T23:14:44.538966",
+    "key": "system",
+    "old_value": null,
+    "new_value": {
+      "log_level": "INFO",
+      "max_log_size_mb": 100,
+      "log_retention_days": 30,
+      "memory_threshold_percent": 80,
+      "disk_threshold_percent": 90
+    },
+    "user": "system"
+  },
+  {
+    "timestamp": "2026-01-07T23:14:44.538966",
+    "key": "web",
+    "old_value": null,
+    "new_value": {
+      "host": "0.0.0.0",
+      "port": 8000,
+      "cors_origins": [
+        "*"
+      ],
+      "request_timeout": 300
+    },
+    "user": "system"
+  }
+]

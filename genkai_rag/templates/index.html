@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1 class="title">玄界RAGシステム</h1>
+            <p class="subtitle">九州大学スーパーコンピュータ玄界システム用質問応答システム</p>
+        </header>
+
+        <main class="main">
+            <!-- システム状態表示 -->
+            <div class="status-panel" id="statusPanel">
+                <div class="status-item">
+                    <span class="status-label">システム状態:</span>
+                    <span class="status-value" id="systemStatus">確認中...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">使用モデル:</span>
+                    <span class="status-value" id="currentModel">確認中...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">アクティブセッション:</span>
+                    <span class="status-value" id="activeSessions">0</span>
+                </div>
+            </div>
+
+            <!-- モデル選択 -->
+            <div class="model-selector">
+                <label for="modelSelect" class="model-label">使用モデル:</label>
+                <select id="modelSelect" class="model-select">
+                    <option value="">読み込み中...</option>
+                </select>
+                <button id="switchModelBtn" class="btn btn-secondary">モデル切り替え</button>
+            </div>
+
+            <!-- 質問入力フォーム -->
+            <div class="query-form">
+                <div class="input-group">
+                    <label for="questionInput" class="input-label">質問を入力してください:</label>
+                    <textarea 
+                        id="questionInput" 
+                        class="question-input" 
+                        placeholder="玄界システムについて質問してください..."
+                        rows="4"
+                    ></textarea>
+                </div>
+                
+                <div class="form-options">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="includeHistory" checked>
+                        <label for="includeHistory">会話履歴を含める</label>
+                    </div>
+                    
+                    <div class="input-group-inline">
+                        <label for="maxSources">最大出典数:</label>
+                        <input type="number" id="maxSources" value="5" min="1" max="20" class="number-input">
+                    </div>
+                </div>
+                
+                <div class="button-group">
+                    <button id="submitBtn" class="btn btn-primary">質問する</button>
+                    <button id="clearBtn" class="btn btn-secondary">履歴クリア</button>
+                </div>
+            </div>
+
+            <!-- 処理中表示 -->
+            <div class="loading" id="loadingIndicator" style="display: none;">
+                <div class="loading-spinner"></div>
+                <p class="loading-text">回答を生成中...</p>
+            </div>
+
+            <!-- 会話履歴表示 -->
+            <div class="conversation" id="conversationArea">
+                <h2 class="conversation-title">会話履歴</h2>
+                <div class="messages" id="messagesContainer">
+                    <!-- メッセージがここに動的に追加される -->
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>&copy; 2024 九州大学情報基盤研究開発センター</p>
+        </footer>
+    </div>
+
+    <!-- エラーモーダル -->
+    <div class="modal" id="errorModal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>エラー</h3>
+                <button class="modal-close" id="closeErrorModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="errorMessage"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" id="errorOkBtn">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
