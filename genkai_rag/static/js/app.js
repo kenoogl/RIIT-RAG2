@@ -52,11 +52,29 @@ class GenkaiRAGApp {
      */
     bindEvents() {
         // フォーム送信
-        this.submitBtn.addEventListener('click', () => this.submitQuery());
+        const queryForm = document.getElementById('queryForm');
+        if (queryForm) {
+            queryForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.submitQuery();
+            });
+        }
+        
+        this.submitBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.submitQuery();
+        });
+        
         this.questionInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
                 this.submitQuery();
             }
+        });
+        
+        // 入力検証
+        this.questionInput.addEventListener('input', () => {
+            this.validateInput();
         });
         
         // 履歴クリア
@@ -74,6 +92,18 @@ class GenkaiRAGApp {
             if (e.target === this.errorModal) {
                 this.hideErrorModal();
             }
+        });
+        
+        // キーボードナビゲーション
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.errorModal.style.display === 'flex') {
+                this.hideErrorModal();
+            }
+        });
+        
+        // フォーカス管理
+        this.questionInput.addEventListener('focus', () => {
+            this.questionInput.setAttribute('aria-describedby', 'questionHelp');
         });
     }
     
@@ -94,10 +124,51 @@ class GenkaiRAGApp {
     }
     
     /**
-     * セッションIDを生成
+     * 入力検証
      */
-    generateSessionId() {
-        return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    validateInput() {
+        const question = this.questionInput.value.trim();
+        const isValid = question.length >= 1;
+        
+        this.submitBtn.disabled = !isValid || this.isProcessing;
+        
+        // アクセシビリティ: 入力状態をスクリーンリーダーに通知
+        if (question.length === 0) {
+            this.questionInput.setAttribute('aria-invalid', 'true');
+            this.questionInput.setAttribute('aria-describedby', 'questionHelp questionError');
+        } else {
+            this.questionInput.setAttribute('aria-invalid', 'false');
+            this.questionInput.setAttribute('aria-describedby', 'questionHelp');
+        }
+    }
+    
+    /**
+     * フォーカス管理
+     */
+    manageFocus() {
+        // エラーモーダル表示時のフォーカス管理
+        if (this.errorModal.style.display === 'flex') {
+            this.errorOkBtn.focus();
+        }
+    }
+    
+    /**
+     * アクセシビリティ通知
+     */
+    announceToScreenReader(message) {
+        // ライブリージョンを使用してスクリーンリーダーに通知
+        const announcement = document.createElement('div');
+        announcement.setAttribute('aria-live', 'polite');
+        announcement.setAttribute('aria-atomic', 'true');
+        announcement.className = 'sr-only';
+        announcement.textContent = message;
+        
+        document.body.appendChild(announcement);
+        
+        // 通知後に要素を削除
+        setTimeout(() => {
+            document.body.removeChild(announcement);
+        }, 1000);
     }
     
     /**
@@ -210,6 +281,7 @@ class GenkaiRAGApp {
         const question = this.questionInput.value.trim();
         if (!question) {
             this.showError('質問を入力してください');
+            this.questionInput.focus();
             return;
         }
         
@@ -256,6 +328,9 @@ class GenkaiRAGApp {
             // 入力フィールドをクリア
             this.questionInput.value = '';
             
+            // 成功をスクリーンリーダーに通知
+            this.announceToScreenReader('回答が生成されました。');
+            
         } catch (error) {
             console.error('Failed to submit query:', error);
             this.showError(`質問の処理に失敗しました: ${error.message}`);
@@ -265,9 +340,19 @@ class GenkaiRAGApp {
                 error: true
             });
             
+            // エラーをスクリーンリーダーに通知
+            this.announceToScreenReader('エラーが発生しました。もう一度お試しください。');
+            
         } finally {
             this.setProcessingState(false);
         }
+    }
+    
+    /**
+     * セッションIDを生成
+     */
+    generateSessionId() {
+        return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     }
     
     /**
@@ -279,11 +364,21 @@ class GenkaiRAGApp {
         if (processing) {
             this.submitBtn.disabled = true;
             this.submitBtn.textContent = '処理中...';
+            this.submitBtn.setAttribute('aria-busy', 'true');
             this.loadingIndicator.style.display = 'block';
+            this.loadingIndicator.setAttribute('aria-hidden', 'false');
+            
+            // スクリーンリーダーに処理開始を通知
+            this.announceToScreenReader('質問を処理中です。しばらくお待ちください。');
         } else {
             this.submitBtn.disabled = false;
             this.submitBtn.textContent = '質問する';
+            this.submitBtn.setAttribute('aria-busy', 'false');
             this.loadingIndicator.style.display = 'none';
+            this.loadingIndicator.setAttribute('aria-hidden', 'true');
+            
+            // 入力検証を再実行
+            this.validateInput();
         }
     }
     
@@ -474,6 +569,13 @@ class GenkaiRAGApp {
     showError(message) {
         this.errorMessage.textContent = message;
         this.errorModal.style.display = 'flex';
+        this.errorModal.setAttribute('aria-hidden', 'false');
+        
+        // フォーカスをモーダルに移動
+        this.manageFocus();
+        
+        // スクリーンリーダーに通知
+        this.announceToScreenReader(`エラー: ${message}`);
     }
     
     /**
@@ -481,6 +583,10 @@ class GenkaiRAGApp {
      */
     hideErrorModal() {
         this.errorModal.style.display = 'none';
+        this.errorModal.setAttribute('aria-hidden', 'true');
+        
+        // フォーカスを質問入力フィールドに戻す
+        this.questionInput.focus();
     }
 }
 

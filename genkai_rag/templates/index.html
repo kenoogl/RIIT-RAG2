@@ -3,91 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="九州大学スーパーコンピュータ玄界システム用RAG質問応答システム">
+    <meta name="keywords" content="玄界,RAG,質問応答,九州大学,スーパーコンピュータ">
+    <meta name="author" content="九州大学情報基盤研究開発センター">
     <title>{{ title }}</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
 </head>
 <body>
     <div class="container">
-        <header class="header">
+        <header class="header" role="banner">
             <h1 class="title">玄界RAGシステム</h1>
             <p class="subtitle">九州大学スーパーコンピュータ玄界システム用質問応答システム</p>
         </header>
 
-        <main class="main">
+        <main class="main" role="main">
             <!-- システム状態表示 -->
-            <div class="status-panel" id="statusPanel">
+            <section class="status-panel" id="statusPanel" aria-label="システム状態">
                 <div class="status-item">
                     <span class="status-label">システム状態:</span>
-                    <span class="status-value" id="systemStatus">確認中...</span>
+                    <span class="status-value" id="systemStatus" aria-live="polite">確認中...</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">使用モデル:</span>
-                    <span class="status-value" id="currentModel">確認中...</span>
+                    <span class="status-value" id="currentModel" aria-live="polite">確認中...</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">アクティブセッション:</span>
-                    <span class="status-value" id="activeSessions">0</span>
+                    <span class="status-value" id="activeSessions" aria-live="polite">0</span>
                 </div>
-            </div>
+            </section>
 
             <!-- モデル選択 -->
-            <div class="model-selector">
+            <section class="model-selector" aria-label="モデル選択">
                 <label for="modelSelect" class="model-label">使用モデル:</label>
-                <select id="modelSelect" class="model-select">
+                <select id="modelSelect" class="model-select" aria-describedby="modelSelectHelp">
                     <option value="">読み込み中...</option>
                 </select>
-                <button id="switchModelBtn" class="btn btn-secondary">モデル切り替え</button>
-            </div>
+                <div id="modelSelectHelp" class="sr-only">使用するLLMモデルを選択してください</div>
+                <button id="switchModelBtn" class="btn btn-secondary" aria-describedby="switchModelHelp">モデル切り替え</button>
+                <div id="switchModelHelp" class="sr-only">選択したモデルに切り替えます</div>
+            </section>
 
             <!-- 質問入力フォーム -->
-            <div class="query-form">
-                <div class="input-group">
-                    <label for="questionInput" class="input-label">質問を入力してください:</label>
-                    <textarea 
-                        id="questionInput" 
-                        class="question-input" 
-                        placeholder="玄界システムについて質問してください..."
-                        rows="4"
-                    ></textarea>
-                </div>
-                
-                <div class="form-options">
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="includeHistory" checked>
-                        <label for="includeHistory">会話履歴を含める</label>
+            <section class="query-form" aria-label="質問入力">
+                <form id="queryForm" novalidate>
+                    <div class="input-group">
+                        <label for="questionInput" class="input-label">質問を入力してください:</label>
+                        <textarea 
+                            id="questionInput" 
+                            class="question-input" 
+                            placeholder="玄界システムについて質問してください..."
+                            rows="4"
+                            required
+                            aria-describedby="questionHelp"
+                        ></textarea>
+                        <div id="questionHelp" class="sr-only">玄界システムに関する質問を日本語で入力してください</div>
                     </div>
                     
-                    <div class="input-group-inline">
-                        <label for="maxSources">最大出典数:</label>
-                        <input type="number" id="maxSources" value="5" min="1" max="20" class="number-input">
+                    <div class="form-options">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="includeHistory" checked aria-describedby="historyHelp">
+                            <label for="includeHistory">会話履歴を含める</label>
+                            <div id="historyHelp" class="sr-only">チェックすると過去の会話を参考にして回答します</div>
+                        </div>
+                        
+                        <div class="input-group-inline">
+                            <label for="maxSources">最大出典数:</label>
+                            <input type="number" id="maxSources" value="5" min="1" max="20" class="number-input" aria-describedby="sourcesHelp">
+                            <div id="sourcesHelp" class="sr-only">回答に含める出典の最大数を1から20の間で設定</div>
+                        </div>
                     </div>
-                </div>
-                
-                <div class="button-group">
-                    <button id="submitBtn" class="btn btn-primary">質問する</button>
-                    <button id="clearBtn" class="btn btn-secondary">履歴クリア</button>
-                </div>
-            </div>
+                    
+                    <div class="button-group">
+                        <button type="submit" id="submitBtn" class="btn btn-primary" aria-describedby="submitHelp">質問する</button>
+                        <div id="submitHelp" class="sr-only">入力した質問を送信して回答を取得します</div>
+                        <button type="button" id="clearBtn" class="btn btn-secondary" aria-describedby="clearHelp">履歴クリア</button>
+                        <div id="clearHelp" class="sr-only">会話履歴をすべて削除します</div>
+                    </div>
+                </form>
+            </section>
 
             <!-- 処理中表示 -->
-            <div class="loading" id="loadingIndicator" style="display: none;">
-                <div class="loading-spinner"></div>
+            <div class="loading" id="loadingIndicator" style="display: none;" role="status" aria-live="assertive">
+                <div class="loading-spinner" aria-hidden="true"></div>
                 <p class="loading-text">回答を生成中...</p>
             </div>
 
             <!-- 会話履歴表示 -->
-            <div class="conversation" id="conversationArea">
+            <section class="conversation" id="conversationArea" aria-label="会話履歴">
                 <h2 class="conversation-title">会話履歴</h2>
-                <div class="messages" id="messagesContainer">
+                <div class="messages" id="messagesContainer" role="log" aria-live="polite" aria-label="メッセージ一覧">
                     <!-- メッセージがここに動的に追加される -->
                 </div>
-            </div>
+            </section>
         </main>
 
-        <footer class="footer">
+        <footer class="footer" role="contentinfo">
             <p>&copy; 2024 九州大学情報基盤研究開発センター</p>
         </footer>
     </div>
