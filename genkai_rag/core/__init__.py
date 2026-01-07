@@ -4,6 +4,7 @@ from .scraper import WebScraper
 from .processor import DocumentProcessor
 from .llm_manager import LLMManager, ModelInfo
 from .rag_engine import RAGEngine, RAGResponse
+from .chat_manager import ChatManager
 
 __all__ = [
     "WebScraper", 
@@ -11,5 +12,6 @@ __all__ = [
     "LLMManager", 
     "ModelInfo",
     "RAGEngine", 
-    "RAGResponse"
+    "RAGResponse",
+    "ChatManager"
 ]
