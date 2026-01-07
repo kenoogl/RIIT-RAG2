@@ -1,0 +1,63 @@
+# 玄界RAGシステム デフォルト設定
+
+# LLMモデル設定
+llm:
+  default_model: "llama3.2:3b"
+  models:
+    "llama3.2:3b":
+      temperature: 0.7
+      max_tokens: 2048
+      context_window: 8192
+    "gemma2:2b":
+      temperature: 0.6
+      max_tokens: 1024
+      context_window: 4096
+  ollama:
+    base_url: "http://localhost:11434"
+    timeout: 60
+
+# ベクトルデータベース設定
+vector_store:
+  type: "chroma"
+  persist_directory: "./data/chroma_db"
+  collection_name: "genkai_documents"
+
+# 文書処理設定
+document_processing:
+  chunk_size: 1024
+  chunk_overlap: 200
+  max_documents: 10000
+
+# Webスクレイピング設定
+scraping:
+  base_url: "https://www.cc.kyushu-u.ac.jp/scp/"
+  request_delay: 1.0
+  max_retries: 3
+  timeout: 30
+  user_agent: "Genkai RAG System 1.0"
+
+# 会話履歴設定
+chat:
+  max_history_size: 50
+  session_timeout_hours: 24
+  cleanup_interval_hours: 6
+
+# システム監視設定
+monitoring:
+  log_level: "INFO"
+  log_file: "./logs/genkai_rag.log"
+  max_log_size_mb: 100
+  backup_count: 5
+
+# API設定
+api:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins: ["*"]
+  max_concurrent_requests: 10
+
+# データ保存設定
+storage:
+  data_directory: "./data"
+  backup_directory: "./backups"
+  retention_days: 30

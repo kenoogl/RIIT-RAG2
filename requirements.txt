@@ -1,0 +1,39 @@
+# Core RAG Framework
+llama-index==0.10.11
+llama-index-llms-ollama==0.1.2
+llama-index-embeddings-ollama==0.1.2
+llama-index-vector-stores-chroma==0.1.7
+
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Web Scraping
+beautifulsoup4==4.12.2
+requests==2.31.0
+lxml==4.9.4
+
+# Vector Database
+chromadb==0.4.22
+
+# Data Processing
+pydantic==2.5.3
+python-dateutil==2.8.2
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+hypothesis==6.96.1
+
+# Logging and Configuration
+pyyaml==6.0.1
+python-json-logger==2.0.7
+
+# System Monitoring
+psutil==5.9.7
+
+# Development
+black==23.12.1
+isort==5.13.2
+mypy==1.8.0

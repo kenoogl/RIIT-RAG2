@@ -6,7 +6,7 @@
 
 ## タスク
 
-- [ ] 1. プロジェクト構造とコア依存関係の設定
+- [x] 1. プロジェクト構造とコア依存関係の設定
   - Pythonプロジェクト構造の作成
   - requirements.txtの作成（LlamaIndex、FastAPI、Ollama、BeautifulSoup、Chroma等）
   - 基本設定ファイルとログ設定の実装
