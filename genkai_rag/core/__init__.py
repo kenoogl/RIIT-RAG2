@@ -7,6 +7,7 @@ from .rag_engine import RAGEngine, RAGResponse
 from .chat_manager import ChatManager
 from .config_manager import ConfigManager, ConfigChange
 from .system_monitor import SystemMonitor, SystemStatus, AlertThreshold
+from .error_recovery import ErrorRecoveryManager, ErrorType, ErrorSeverity, ErrorContext, RetryConfig
 
 __all__ = [
     "WebScraper", 
@@ -20,5 +21,10 @@ __all__ = [
     "ConfigChange",
     "SystemMonitor",
     "SystemStatus",
-    "AlertThreshold"
+    "AlertThreshold",
+    "ErrorRecoveryManager",
+    "ErrorType",
+    "ErrorSeverity", 
+    "ErrorContext",
+    "RetryConfig"
 ]
