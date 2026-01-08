@@ -622,3 +622,106 @@ class TestRAGEngineProperties:
         assert stats["similarity_threshold"] == threshold
         assert stats["max_retrieved_docs"] == max_retrieved
         assert stats["max_context_docs"] == max_context
+    
+    @given(
+        questions=st.lists(
+            st.text(min_size=1, max_size=200).filter(lambda x: x.strip()),
+            min_size=1, max_size=5
+        )
+    )
+    @settings(max_examples=5, deadline=10000, suppress_health_check=[hypothesis.HealthCheck.too_slow])
+    def test_concurrent_operation_during_update_property(self, questions):
+        """
+        プロパティ 20: 更新中の継続動作
+        任意のインデックス更新中の質問に対して、システムは既存のインデックスを使用して回答を生成し、更新処理と並行して動作する
+        
+        Feature: genkai-rag-system, Property 20: 更新中の継続動作
+        **検証: 要件 6.4**
+        """
+        # モックインデックスを設定（既存のインデックス）
+        mock_index = Mock()
+        self.mock_document_processor.get_index.return_value = mock_index
+        
+        # LLMManagerのモック設定
+        self.mock_llm_manager.generate_response.return_value = "Test answer"
+        
+        # RAGEngineを初期化（既存のインデックスあり）
+        with patch('genkai_rag.core.rag_engine.VectorIndexRetriever'), \
+             patch('genkai_rag.core.rag_engine.SimilarityPostprocessor'), \
+             patch('genkai_rag.core.rag_engine.RetrieverQueryEngine') as mock_query_engine:
+            
+            mock_query_engine_instance = Mock()
+            mock_query_engine.return_value = mock_query_engine_instance
+            
+            engine = RAGEngine(
+                llm_manager=self.mock_llm_manager,
+                document_processor=self.mock_document_processor
+            )
+            
+            # プロパティ1: 既存のインデックスでクエリエンジンが初期化される
+            assert engine.query_engine is not None
+            assert engine.query_engine == mock_query_engine_instance
+            
+            # プロパティ2: インデックス更新中でも質問に回答できる
+            # インデックス更新をシミュレート（時間のかかる処理）
+            update_in_progress = True
+            
+            # 更新中フラグを設定
+            engine._index_updating = update_in_progress
+            
+            # 各質問に対して回答を生成
+            for question in questions:
+                assume(question.strip())  # 空白のみの質問を除外
+                
+                # モック設定：既存のインデックスを使用した検索結果
+                mock_node = Mock()
+                mock_node.node.text = f"Content for: {question}"
+                mock_node.node.metadata = {"title": "Test Doc", "url": "http://test.com"}
+                mock_node.score = 0.8
+                
+                engine.retrieve_documents = Mock(return_value=[mock_node])
+                engine.rerank_documents = Mock(return_value=[mock_node])
+                
+                try:
+                    # プロパティ3: 更新中でも回答が生成される
+                    result = engine.query(question)
+                    
+                    assert isinstance(result, RAGResponse)
+                    assert isinstance(result.answer, str)
+                    assert len(result.answer) > 0
+                    assert result.processing_time >= 0.0
+                    assert 0.0 <= result.confidence_score <= 1.0
+                    assert 0.0 <= result.retrieval_score <= 1.0
+                    
+                    # プロパティ4: 既存のインデックスが使用されている
+                    # （新しいインデックスではなく、既存のものを使用）
+                    assert engine.query_engine == mock_query_engine_instance
+                    
+                except (ValueError, RuntimeError) as e:
+                    # 妥当なエラー（空の質問など）は許容
+                    assert any(keyword in str(e).lower() for keyword in ["empty", "not initialized"])
+            
+            # プロパティ5: 更新処理と並行して動作する
+            # （更新中フラグがあっても、クエリエンジンは動作し続ける）
+            assert engine.query_engine is not None
+            
+            # プロパティ6: システム状態が一貫している
+            stats = engine.get_engine_stats()
+            assert stats["query_engine_initialized"] is True
+            assert isinstance(stats["similarity_threshold"], float)
+            assert isinstance(stats["max_retrieved_docs"], int)
+            assert isinstance(stats["max_context_docs"], int)
+            
+            # 更新完了をシミュレート
+            engine._index_updating = False
+            
+            # プロパティ7: 更新完了後も正常に動作する
+            if questions:  # 質問がある場合のみテスト
+                final_question = questions[0]
+                try:
+                    final_result = engine.query(final_question)
+                    assert isinstance(final_result, RAGResponse)
+                    assert isinstance(final_result.answer, str)
+                except (ValueError, RuntimeError):
+                    # 妥当なエラーは許容
+                    pass

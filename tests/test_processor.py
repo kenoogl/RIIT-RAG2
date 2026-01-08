@@ -565,3 +565,98 @@ class TestDocumentProcessingProperties:
         stats = processor.get_index_statistics()
         assert stats['document_count'] == 0
         assert stats['total_chunks'] == 0
+    
+    @settings(deadline=None, max_examples=3)
+    @given(
+        initial_docs=st.integers(min_value=1, max_value=3),
+        update_docs=st.integers(min_value=1, max_value=3)
+    )
+    @patch('genkai_rag.core.processor.HuggingFaceEmbedding')
+    @patch('genkai_rag.core.processor.VectorStoreIndex')
+    @patch('genkai_rag.core.processor.load_index_from_storage')
+    def test_index_update_functionality_property(self, mock_load_index, mock_vector_store,
+                                                mock_embedding, initial_docs, update_docs):
+        """
+        プロパティ 15: インデックス更新機能
+        任意のインデックス更新要求に対して、システムは新しい文書をインデックスに追加し、更新完了を通知する
+        
+        Feature: genkai-rag-system, Property 15: インデックス更新機能
+        **検証: 要件 4.2**
+        """
+        # モックを設定
+        mock_embedding.return_value = Mock()
+        
+        mock_index = Mock()
+        mock_index.storage_context.persist.return_value = None
+        mock_index.storage_context.docstore.docs = {}
+        mock_index.insert.return_value = None
+        mock_vector_store.from_documents.return_value = mock_index
+        mock_load_index.return_value = mock_index
+        
+        processor = DocumentProcessor(
+            index_dir=self.temp_dir,
+            chunk_size=200,
+            chunk_overlap=50
+        )
+        
+        # 初期文書を作成・処理
+        initial_documents = []
+        for i in range(initial_docs):
+            doc = Document(
+                title=f"初期文書{i+1}",
+                content=f"これは初期文書{i+1}のコンテンツです。" * 10,
+                url=f"https://example.com/initial{i+1}"
+            )
+            initial_documents.append(doc)
+        
+        # 初期文書を処理
+        initial_result = processor.process_documents(initial_documents)
+        assert initial_result is True, "初期文書の処理が失敗しました"
+        
+        # 初期統計を取得
+        initial_stats = processor.get_index_statistics()
+        initial_doc_count = initial_stats['document_count']
+        initial_chunk_count = initial_stats['total_chunks']
+        
+        # プロパティ1: 初期文書が正常に追加される
+        assert initial_doc_count == initial_docs
+        assert initial_chunk_count >= initial_docs
+        assert initial_stats['index_exists'] is True
+        
+        # 更新文書を作成・処理
+        update_documents = []
+        for i in range(update_docs):
+            doc = Document(
+                title=f"更新文書{i+1}",
+                content=f"これは更新文書{i+1}のコンテンツです。" * 10,
+                url=f"https://example.com/update{i+1}"
+            )
+            update_documents.append(doc)
+        
+        # 更新文書を処理（インデックス更新）
+        update_result = processor.process_documents(update_documents)
+        assert update_result is True, "更新文書の処理が失敗しました"
+        
+        # 更新後の統計を取得
+        updated_stats = processor.get_index_statistics()
+        updated_doc_count = updated_stats['document_count']
+        updated_chunk_count = updated_stats['total_chunks']
+        
+        # プロパティ2: 新しい文書がインデックスに追加される
+        expected_doc_count = initial_docs + update_docs
+        assert updated_doc_count == expected_doc_count, f"期待される文書数: {expected_doc_count}, 実際: {updated_doc_count}"
+        assert updated_chunk_count >= updated_doc_count, "チャンク数が文書数より少ない"
+        
+        # プロパティ3: 更新完了が通知される（インデックスが存在し、統計が更新される）
+        assert updated_stats['index_exists'] is True, "インデックスが存在しません"
+        assert processor.get_index() is not None, "インデックスオブジェクトが取得できません"
+        
+        # プロパティ4: 初期文書と更新文書の両方が取得可能
+        for doc in initial_documents + update_documents:
+            retrieved_doc = processor.get_document_by_id(doc.id)
+            assert retrieved_doc is not None, f"文書 {doc.id} が取得できません"
+            assert retrieved_doc.title == doc.title, f"文書タイトルが一致しません: {doc.title}"
+        
+        # プロパティ5: 文書数とチャンク数が増加している
+        assert updated_doc_count >= initial_doc_count, "文書数が減少しています"
+        assert updated_chunk_count >= initial_chunk_count, "チャンク数が減少しています"

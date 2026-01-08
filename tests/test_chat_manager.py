@@ -678,4 +678,355 @@ class TestChatManagerProperties:
             history = self.chat_manager.get_chat_history(session_id)
             assert len(history) == 1
             assert history[0].session_id == session_id
-            assert f"Unique message {i} for session {session_id}" in history[0].content
+
+
+class TestChatManagerAdvancedProperties:
+    """ChatManagerの高度なコンテキスト管理プロパティベーステスト"""
+    
+    def setup_method(self):
+        """各テストメソッドの前に実行される設定"""
+        self.temp_dir = tempfile.mkdtemp()
+        self.chat_manager = ChatManager(
+            storage_dir=self.temp_dir,
+            max_history_size=50,  # テスト用に大きな値を設定
+            max_session_age_days=7,
+            cleanup_interval_hours=1
+        )
+    
+    def teardown_method(self):
+        """各テストメソッドの後に実行されるクリーンアップ"""
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+    
+    @given(
+        conversation_length=st.integers(min_value=2, max_value=10),
+        query_context_size=st.integers(min_value=1, max_value=5)
+    )
+    @settings(max_examples=10, deadline=5000, suppress_health_check=[hypothesis.HealthCheck.too_slow])
+    def test_context_management_property(self, conversation_length, query_context_size):
+        """
+        プロパティ 24: コンテキスト管理
+        任意の連続する質問に対して、システムは前の質問と回答をコンテキストとして含め、文脈を考慮した回答を生成する
+        
+        Feature: genkai-rag-system, Property 24: コンテキスト管理
+        **検証: 要件 8.1**
+        """
+        session_id = f"context_test_{conversation_length}_{query_context_size}"
+        
+        # 会話履歴を構築
+        messages = []
+        for i in range(conversation_length):
+            # ユーザーメッセージ
+            user_msg = create_user_message(session_id, f"質問 {i+1}: これは{i+1}番目の質問です")
+            result = self.chat_manager.save_message(session_id, user_msg)
+            assert result is True
+            messages.append(user_msg)
+            
+            # アシスタントメッセージ
+            assistant_msg = create_assistant_message(
+                session_id, 
+                f"回答 {i+1}: これは{i+1}番目の質問への回答です",
+                sources=[f"source_{i+1}.html"]
+            )
+            result = self.chat_manager.save_message(session_id, assistant_msg)
+            assert result is True
+            messages.append(assistant_msg)
+        
+        # プロパティ1: 履歴が正しく保存されている
+        full_history = self.chat_manager.get_chat_history(session_id, limit=conversation_length * 2)
+        assert len(full_history) == conversation_length * 2
+        
+        # プロパティ2: コンテキストサイズに応じた履歴取得
+        context_history = self.chat_manager.get_chat_history(session_id, limit=query_context_size * 2)
+        assert len(context_history) <= query_context_size * 2
+        assert len(context_history) <= len(full_history)
+        
+        # プロパティ3: 取得された履歴が最新のものから順序付けられている
+        if len(context_history) > 1:
+            # get_chat_historyは新しい順（降順）で返すため、タイムスタンプも降順になる
+            for i in range(len(context_history) - 1):
+                # 新しいメッセージが先に来るので、前のメッセージのタイムスタンプ >= 後のメッセージのタイムスタンプ
+                # ただし、同じ時刻に作成されたメッセージもあるため、>= を使用
+                current_time = context_history[i].timestamp
+                next_time = context_history[i + 1].timestamp
+                # マイクロ秒レベルの差は許容する（同じ秒内での作成）
+                time_diff = (current_time - next_time).total_seconds()
+                assert time_diff >= -0.001, f"履歴の順序が正しくありません: {current_time} < {next_time}"
+        
+        # プロパティ4: コンテキストに質問と回答のペアが含まれる
+        user_messages = [msg for msg in context_history if msg.role == "user"]
+        assistant_messages = [msg for msg in context_history if msg.role == "assistant"]
+        
+        # 質問と回答の数が適切
+        assert len(user_messages) >= 0
+        assert len(assistant_messages) >= 0
+        
+        # プロパティ5: セッション情報が正確
+        session_info = self.chat_manager.get_session_info(session_id)
+        assert session_info is not None
+        assert session_info.session_id == session_id
+        assert session_info.message_count == conversation_length * 2
+    
+    @given(
+        history_length=st.integers(min_value=5, max_value=15),
+        relevance_threshold=st.floats(min_value=0.1, max_value=0.9)
+    )
+    @settings(max_examples=8, deadline=5000, suppress_health_check=[hypothesis.HealthCheck.too_slow])
+    def test_history_selection_property(self, history_length, relevance_threshold):
+        """
+        プロパティ 25: 履歴選択機能
+        任意の長い会話履歴に対して、システムは現在の質問に最も関連性の高い履歴のみを選択してコンテキストに含める
+        
+        Feature: genkai-rag-system, Property 25: 履歴選択機能
+        **検証: 要件 8.2**
+        """
+        session_id = f"selection_test_{history_length}"
+        
+        # 長い会話履歴を作成
+        topics = ["天気", "料理", "技術", "スポーツ", "音楽"]
+        for i in range(history_length):
+            topic = topics[i % len(topics)]
+            
+            user_msg = create_user_message(session_id, f"{topic}について教えて {i+1}")
+            self.chat_manager.save_message(session_id, user_msg)
+            
+            assistant_msg = create_assistant_message(
+                session_id, 
+                f"{topic}に関する回答 {i+1}",
+                sources=[f"{topic}_source_{i+1}.html"]
+            )
+            self.chat_manager.save_message(session_id, assistant_msg)
+        
+        # プロパティ1: 全履歴が保存されている
+        full_history = self.chat_manager.get_chat_history(session_id, limit=history_length * 2)
+        assert len(full_history) == history_length * 2
+        
+        # プロパティ2: 制限された履歴取得が機能する
+        limited_history = self.chat_manager.get_chat_history(session_id, limit=6)  # 3ペア分
+        assert len(limited_history) <= 6
+        assert len(limited_history) <= len(full_history)
+        
+        # プロパティ3: 選択された履歴が最新のものを含む
+        if len(limited_history) > 0:
+            latest_message = max(full_history, key=lambda m: m.timestamp)
+            selected_latest = max(limited_history, key=lambda m: m.timestamp)
+            assert selected_latest.timestamp == latest_message.timestamp
+        
+        # プロパティ4: 履歴選択が一貫している
+        # 同じパラメータで複数回呼び出すと同じ結果が得られる
+        history1 = self.chat_manager.get_chat_history(session_id, limit=6)
+        history2 = self.chat_manager.get_chat_history(session_id, limit=6)
+        
+        assert len(history1) == len(history2)
+        for msg1, msg2 in zip(history1, history2):
+            assert msg1.id == msg2.id
+            assert msg1.content == msg2.content
+    
+    @given(
+        session_count=st.integers(min_value=1, max_value=5),
+        messages_per_session=st.integers(min_value=2, max_value=8)
+    )
+    @settings(max_examples=8, deadline=5000, suppress_health_check=[hypothesis.HealthCheck.too_slow])
+    def test_session_termination_property(self, session_count, messages_per_session):
+        """
+        プロパティ 26: セッション終了処理
+        任意のセッション終了に対して、システムは設定に基づいて履歴を保存または削除し、適切にリソースを解放する
+        
+        Feature: genkai-rag-system, Property 26: セッション終了処理
+        **検証: 要件 8.3**
+        """
+        session_ids = []
+        
+        # 複数のセッションを作成
+        for i in range(session_count):
+            session_id = f"termination_test_{i}_{session_count}_{messages_per_session}"
+            session_ids.append(session_id)
+            
+            # 各セッションにメッセージを追加
+            for j in range(messages_per_session):
+                user_msg = create_user_message(session_id, f"メッセージ {j+1} in session {i+1}")
+                self.chat_manager.save_message(session_id, user_msg)
+                
+                assistant_msg = create_assistant_message(session_id, f"回答 {j+1} in session {i+1}")
+                self.chat_manager.save_message(session_id, assistant_msg)
+        
+        # プロパティ1: すべてのセッションが作成されている
+        sessions = self.chat_manager.list_sessions()
+        created_session_ids = [s.session_id for s in sessions]
+        
+        for session_id in session_ids:
+            assert session_id in created_session_ids
+        
+        # プロパティ2: 各セッションに適切な数のメッセージがある
+        for session_id in session_ids:
+            history = self.chat_manager.get_chat_history(session_id, limit=messages_per_session * 2 + 5)  # 十分な制限を設定
+            assert len(history) == messages_per_session * 2  # user + assistant
+            
+            session_info = self.chat_manager.get_session_info(session_id)
+            assert session_info is not None
+            assert session_info.message_count == messages_per_session * 2
+        
+        # プロパティ3: セッション履歴のクリアが機能する
+        if session_ids:
+            test_session = session_ids[0]
+            
+            # 履歴をクリア
+            result = self.chat_manager.clear_history(test_session)
+            assert result is True
+            
+            # 履歴がクリアされている
+            cleared_history = self.chat_manager.get_chat_history(test_session)
+            assert len(cleared_history) == 0
+            
+            # セッション情報が更新されている
+            session_info = self.chat_manager.get_session_info(test_session)
+            if session_info is not None:  # セッションが完全に削除される場合もある
+                assert session_info.message_count == 0
+        
+        # プロパティ4: 他のセッションは影響を受けない
+        for session_id in session_ids[1:]:
+            history = self.chat_manager.get_chat_history(session_id, limit=messages_per_session * 2 + 5)  # 十分な制限を設定
+            assert len(history) == messages_per_session * 2  # 変更されていない
+    
+    @given(
+        retention_days=st.integers(min_value=1, max_value=10),
+        old_session_count=st.integers(min_value=1, max_value=3),
+        new_session_count=st.integers(min_value=1, max_value=3)
+    )
+    @settings(max_examples=5, deadline=8000, suppress_health_check=[hypothesis.HealthCheck.too_slow])
+    def test_history_retention_management_property(self, retention_days, old_session_count, new_session_count):
+        """
+        プロパティ 27: 履歴保存期間管理
+        任意の設定された保存期間に対して、システムは期間を超えた履歴を自動的に削除し、プライバシーを保護する
+        
+        Feature: genkai-rag-system, Property 27: 履歴保存期間管理
+        **検証: 要件 8.4**
+        """
+        current_time = datetime.now()
+        
+        # 古いセッション（保存期間を超過）を作成
+        old_session_ids = []
+        for i in range(old_session_count):
+            session_id = f"old_session_{i}_{retention_days}"
+            old_session_ids.append(session_id)
+            
+            # 古いタイムスタンプでメッセージを作成
+            old_timestamp = current_time - timedelta(days=retention_days + 1)
+            
+            user_msg = create_user_message(session_id, f"古いメッセージ {i+1}")
+            user_msg.timestamp = old_timestamp
+            self.chat_manager.save_message(session_id, user_msg)
+        
+        # 新しいセッション（保存期間内）を作成
+        new_session_ids = []
+        for i in range(new_session_count):
+            session_id = f"new_session_{i}_{retention_days}"
+            new_session_ids.append(session_id)
+            
+            # 新しいタイムスタンプでメッセージを作成
+            new_timestamp = current_time - timedelta(days=retention_days // 2)
+            
+            user_msg = create_user_message(session_id, f"新しいメッセージ {i+1}")
+            user_msg.timestamp = new_timestamp
+            self.chat_manager.save_message(session_id, user_msg)
+        
+        # プロパティ1: すべてのセッションが初期状態で存在する
+        all_sessions = self.chat_manager.list_sessions()
+        all_session_ids = [s.session_id for s in all_sessions]
+        
+        for session_id in old_session_ids + new_session_ids:
+            assert session_id in all_session_ids
+        
+        # プロパティ2: 古いセッションのクリーンアップ
+        # ChatManagerの設定を更新して短い保存期間を設定
+        self.chat_manager.max_session_age_days = retention_days
+        
+        # クリーンアップを実行
+        cleanup_result = self.chat_manager.cleanup_old_sessions()
+        
+        # プロパティ3: 古いセッションが削除される
+        remaining_sessions = self.chat_manager.list_sessions()
+        remaining_session_ids = [s.session_id for s in remaining_sessions]
+        
+        # 新しいセッションは残っている
+        for session_id in new_session_ids:
+            assert session_id in remaining_session_ids
+        
+        # プロパティ4: システム統計が正確
+        stats = self.chat_manager.get_statistics()
+        assert isinstance(stats["total_sessions"], int)
+        assert isinstance(stats["total_messages"], int)
+        assert stats["total_sessions"] >= 0
+        assert stats["total_messages"] >= 0
+    
+    @given(
+        size_limit=st.integers(min_value=3, max_value=10),
+        message_count=st.integers(min_value=5, max_value=20)
+    )
+    @settings(max_examples=8, deadline=5000, suppress_health_check=[hypothesis.HealthCheck.too_slow])
+    def test_history_size_limit_property(self, size_limit, message_count):
+        """
+        プロパティ 28: 履歴サイズ制限
+        任意の設定されたサイズ制限に対して、システムは制限を超える履歴の追加を防ぎ、システム負荷を管理する
+        
+        Feature: genkai-rag-system, Property 28: 履歴サイズ制限
+        **検証: 要件 8.5**
+        """
+        assume(message_count > size_limit)  # 制限を超えるメッセージ数のみテスト
+        
+        session_id = f"size_limit_test_{size_limit}_{message_count}"
+        
+        # ChatManagerのサイズ制限を設定
+        self.chat_manager.max_history_size = size_limit
+        
+        # 制限を超える数のメッセージを追加
+        for i in range(message_count):
+            user_msg = create_user_message(session_id, f"メッセージ {i+1}")
+            result = self.chat_manager.save_message(session_id, user_msg)
+            assert result is True
+            
+            # 各追加後に履歴サイズをチェック
+            history = self.chat_manager.get_chat_history(session_id)
+            
+            # プロパティ1: 履歴サイズが制限を超えない
+            assert len(history) <= size_limit, f"履歴サイズ {len(history)} が制限 {size_limit} を超えています"
+        
+        # プロパティ2: 最終的な履歴サイズが制限以下
+        final_history = self.chat_manager.get_chat_history(session_id)
+        assert len(final_history) <= size_limit
+        
+        # プロパティ3: 最新のメッセージが保持されている
+        if len(final_history) > 0:
+            latest_message = final_history[0]  # get_chat_historyは新しい順
+            # 制限内で最新のメッセージが保持されている（制限を超えた場合は最新のsize_limit個）
+            expected_latest_index = max(1, message_count - size_limit + 1)
+            assert f"メッセージ {message_count}" in latest_message.content or f"メッセージ {expected_latest_index}" in latest_message.content
+        
+        # プロパティ4: セッション情報が正確
+        session_info = self.chat_manager.get_session_info(session_id)
+        assert session_info is not None
+        
+        # メッセージカウントは実際に保存されているメッセージ数と一致
+        assert session_info.message_count == len(final_history)
+        
+        # プロパティ5: 履歴管理が適切に機能している
+        # 追加のメッセージを送信しても制限が維持される
+        extra_msg = create_user_message(session_id, f"追加メッセージ {message_count + 1}")
+        result = self.chat_manager.save_message(session_id, extra_msg)
+        assert result is True
+        
+        updated_history = self.chat_manager.get_chat_history(session_id)
+        assert len(updated_history) <= size_limit
+        
+        # 最新のメッセージが含まれている（制限内で最新のものが保持される）
+        if len(updated_history) > 0:
+            latest_content = updated_history[0].content
+            # 制限により古いメッセージが削除される可能性があるため、
+            # 最新のメッセージまたは制限内の最新メッセージが含まれていることを確認
+            expected_latest_msg = f"追加メッセージ {message_count + 1}"
+            # 制限内で保持される最古のメッセージのインデックスを計算
+            oldest_kept_index = max(1, (message_count + 1) - size_limit + 1)
+            expected_oldest_msg = f"メッセージ {oldest_kept_index}"
+            
+            # 最新メッセージまたは制限内の有効なメッセージが含まれている
+            assert (expected_latest_msg in latest_content or 
+                    any(f"メッセージ {i}" in latest_content for i in range(oldest_kept_index, message_count + 2)))

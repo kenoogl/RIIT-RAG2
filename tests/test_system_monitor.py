@@ -1062,3 +1062,114 @@ class TestPerformanceStats:
         assert stats_dict["total_requests"] == 100
         assert stats_dict["avg_response_time_ms"] == 150.5
         assert stats_dict["error_rate_percent"] == 5.0
+
+
+class TestSystemMonitorResourceProperties:
+    """SystemMonitorのリソース監視プロパティベーステスト"""
+    
+    def setup_method(self):
+        """各テストメソッドの前に実行される設定"""
+        import uuid
+        self.temp_dir = tempfile.mkdtemp(suffix=f"_{str(uuid.uuid4())[:8]}")
+        self.log_dir = Path(self.temp_dir) / "logs"
+        self.data_dir = Path(self.temp_dir) / "data"
+        
+        self.system_monitor = SystemMonitor(
+            log_dir=str(self.log_dir),
+            data_dir=str(self.data_dir),
+            monitoring_interval=1,
+            retention_days=3
+        )
+    
+    def teardown_method(self):
+        """各テストメソッドの後に実行されるクリーンアップ"""
+        if self.system_monitor.is_monitoring_active():
+            self.system_monitor.stop_monitoring()
+        
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+    
+    def test_resource_monitoring_accuracy_property(self):
+        """
+        プロパティ 17: リソース監視
+        任意のシステム状態確認要求に対して、システムは現在のメモリ使用量とディスク使用量を正確に報告する
+        
+        Feature: genkai-rag-system, Property 17: リソース監視
+        **検証: 要件 4.4**
+        """
+        # システム状態を複数回取得
+        status_checks = []
+        for _ in range(3):
+            status = self.system_monitor.get_system_status()
+            status_checks.append(status)
+            time.sleep(0.1)  # 少し待機
+        
+        # プロパティ1: 全ての状態確認が成功する
+        assert len(status_checks) == 3
+        
+        for status in status_checks:
+            # プロパティ2: メモリ使用量が正確に報告される
+            assert isinstance(status.memory_usage_percent, float)
+            assert 0.0 <= status.memory_usage_percent <= 100.0
+            assert isinstance(status.memory_available_gb, float)
+            assert status.memory_available_gb >= 0.0
+            assert isinstance(status.memory_total_gb, float)
+            assert status.memory_total_gb > 0.0
+            assert status.memory_available_gb <= status.memory_total_gb
+            
+            # プロパティ3: ディスク使用量が正確に報告される
+            assert isinstance(status.disk_usage_percent, float)
+            assert 0.0 <= status.disk_usage_percent <= 100.0
+            assert isinstance(status.disk_available_gb, float)
+            assert status.disk_available_gb >= 0.0
+            assert isinstance(status.disk_total_gb, float)
+            assert status.disk_total_gb > 0.0
+            assert status.disk_available_gb <= status.disk_total_gb
+            
+            # プロパティ4: CPU使用量が正確に報告される
+            assert isinstance(status.cpu_usage_percent, float)
+            assert 0.0 <= status.cpu_usage_percent <= 100.0
+            
+            # プロパティ5: プロセス数が正確に報告される
+            assert isinstance(status.process_count, int)
+            assert status.process_count > 0
+            
+            # プロパティ6: アップタイムが正確に報告される
+            assert isinstance(status.uptime_seconds, float)
+            assert status.uptime_seconds >= 0.0
+            
+            # プロパティ7: タイムスタンプが現在時刻に近い
+            current_time = datetime.now()
+            time_diff = abs((current_time - status.timestamp).total_seconds())
+            assert time_diff < 5.0  # 5秒以内
+        
+        # プロパティ8: 連続する測定値が合理的な範囲内
+        for i in range(1, len(status_checks)):
+            prev_status = status_checks[i-1]
+            curr_status = status_checks[i]
+            
+            # メモリ使用量の変化が合理的
+            memory_diff = abs(curr_status.memory_usage_percent - prev_status.memory_usage_percent)
+            assert memory_diff < 50.0  # 50%以上の急激な変化はない
+            
+            # ディスク使用量の変化が合理的
+            disk_diff = abs(curr_status.disk_usage_percent - prev_status.disk_usage_percent)
+            assert disk_diff < 10.0  # 10%以上の急激な変化はない
+        
+        # プロパティ9: 個別のリソース監視メソッドも正確
+        memory_usage = self.system_monitor.check_memory_usage()
+        disk_usage = self.system_monitor.check_disk_usage()
+        cpu_usage = self.system_monitor.check_cpu_usage()
+        
+        assert isinstance(memory_usage, float)
+        assert 0.0 <= memory_usage <= 100.0
+        assert isinstance(disk_usage, float)
+        assert 0.0 <= disk_usage <= 100.0
+        assert isinstance(cpu_usage, float)
+        assert 0.0 <= cpu_usage <= 100.0
+        
+        # プロパティ10: 統合状態と個別測定値が一致する（許容誤差内）
+        latest_status = status_checks[-1]
+        assert abs(latest_status.memory_usage_percent - memory_usage) < 10.0
+        assert abs(latest_status.disk_usage_percent - disk_usage) < 5.0
+        # CPU使用量は変動が大きいため、より大きな許容誤差を設定
+        assert abs(latest_status.cpu_usage_percent - cpu_usage) < 30.0

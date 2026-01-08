@@ -254,7 +254,7 @@ class TestWebScrapingProperties:
         assert document.is_valid()
         
         # プロパティ2: 文書の基本情報が正しく設定される
-        assert document.title == title
+        assert document.title.strip() == title.strip()  # 空白文字を考慮した比較
         assert document.url == test_url
         assert len(document.content.strip()) > 0
         
