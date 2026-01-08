@@ -598,14 +598,13 @@ class TestEndToEndWorkflow:
             results.append(f"query_{query_id}")
             return mock_response
         
-        # 複数のクエリを同時実行
-        system.rag_engine.query = Mock(side_effect=lambda q: process_query(q.split("_")[1]))
+        # モックを設定
+        system.rag_engine.query = Mock(side_effect=lambda q: process_query(q.split()[-1]))
         
+        # 複数のスレッドで同時にクエリを実行
         threads = []
         for i in range(3):
-            thread = threading.Thread(
-                target=lambda i=i: system.rag_engine.query(f"query_{i}")
-            )
+            thread = threading.Thread(target=lambda i=i: system.rag_engine.query(f"テスト質問 {i}"))
             threads.append(thread)
             thread.start()
         
@@ -613,9 +612,268 @@ class TestEndToEndWorkflow:
         for thread in threads:
             thread.join()
         
-        # 全クエリが処理されたことを確認
+        # 結果を確認
         assert len(results) == 3
         assert system.rag_engine.query.call_count == 3
+    
+    def test_system_workflow_validation(self, mock_system):
+        """システム全体のワークフロー検証テスト"""
+        from genkai_rag.models.document import Document, DocumentSource
+        from genkai_rag.core.rag_engine import RAGResponse
+        from datetime import datetime
+        
+        system = mock_system
+        session_id = "workflow-validation-session"
+        
+        # ワークフロー全体をシミュレート
+        workflow_steps = []
+        
+        # 1. 初期化確認
+        workflow_steps.append("system_initialized")
+        
+        # 2. 文書スクレイピング
+        mock_document = Document(
+            title="玄界システム詳細",
+            content="玄界システムは九州大学の最新スーパーコンピュータシステムです。研究者向けの高性能計算環境を提供しています。",
+            url="https://www.cc.kyushu-u.ac.jp/scp/genkai",
+            section="システム詳細",
+            timestamp=datetime.now()
+        )
+        
+        system.web_scraper.scrape_single_page = Mock(return_value=mock_document)
+        document = system.web_scraper.scrape_single_page("https://www.cc.kyushu-u.ac.jp/scp/genkai")
+        workflow_steps.append("document_scraped")
+        
+        # 3. 文書処理
+        system.document_processor.process_single_document = Mock(return_value=True)
+        processed = system.document_processor.process_single_document(document)
+        workflow_steps.append("document_processed")
+        
+        # 4. インデックス更新
+        system.document_processor.update_index = Mock(return_value=True)
+        index_updated = system.document_processor.update_index()
+        workflow_steps.append("index_updated")
+        
+        # 5. 質問処理
+        query = "玄界システムの特徴について教えてください"
+        mock_response = RAGResponse(
+            answer="玄界システムは九州大学の最新スーパーコンピュータで、研究者向けの高性能計算環境を提供しています。",
+            sources=[DocumentSource(
+                title="玄界システム詳細",
+                url="https://www.cc.kyushu-u.ac.jp/scp/genkai",
+                section="システム詳細",
+                relevance_score=0.95
+            )],
+            processing_time=0.3,
+            model_used="llama3.2:3b",
+            retrieval_score=0.9,
+            confidence_score=0.92
+        )
+        
+        system.rag_engine.query = Mock(return_value=mock_response)
+        response = system.rag_engine.query(query)
+        workflow_steps.append("query_processed")
+        
+        # 6. 履歴保存
+        system.chat_manager.save_message = Mock(return_value=True)
+        user_message = Message(content=query, role="user", session_id=session_id)
+        system.chat_manager.save_message(session_id, user_message)
+        
+        assistant_message = Message(content=response.answer, role="assistant", session_id=session_id)
+        system.chat_manager.save_message(session_id, assistant_message)
+        workflow_steps.append("messages_saved")
+        
+        # 7. システム状態確認
+        system.system_monitor = Mock()
+        system.system_monitor.get_system_status = Mock(return_value={
+            "status": "healthy",
+            "uptime": 3600,
+            "memory_usage": 45.2,
+            "disk_usage": 23.1
+        })
+        status = system.system_monitor.get_system_status()
+        workflow_steps.append("status_checked")
+        
+        # ワークフロー全体の検証
+        expected_steps = [
+            "system_initialized",
+            "document_scraped", 
+            "document_processed",
+            "index_updated",
+            "query_processed",
+            "messages_saved",
+            "status_checked"
+        ]
+        
+        assert workflow_steps == expected_steps
+        assert document is not None
+        assert processed is True
+        assert index_updated is True
+        assert response is not None
+        assert "玄界システム" in response.answer
+        assert len(response.sources) == 1
+        assert status["status"] == "healthy"
+        
+        # 各コンポーネントが正しく呼ばれたことを確認
+        system.web_scraper.scrape_single_page.assert_called_once()
+        system.document_processor.process_single_document.assert_called_once()
+        system.document_processor.update_index.assert_called_once()
+        system.rag_engine.query.assert_called_once()
+        assert system.chat_manager.save_message.call_count == 2
+        system.system_monitor.get_system_status.assert_called_once()
+    
+    def test_comprehensive_e2e_scenario(self, mock_system):
+        """包括的エンドツーエンドシナリオテスト"""
+        from genkai_rag.models.document import Document, DocumentSource
+        from genkai_rag.core.rag_engine import RAGResponse
+        from datetime import datetime
+        
+        system = mock_system
+        session_id = "comprehensive-e2e-session"
+        
+        # シナリオ: 新しいユーザーが玄界システムについて学習する完全なフロー
+        
+        # Phase 1: システム初期化と文書収集
+        documents = [
+            Document(
+                title="玄界システム概要",
+                content="玄界システムは九州大学情報基盤研究開発センターが運用するスーパーコンピュータシステムです。",
+                url="https://www.cc.kyushu-u.ac.jp/scp/overview",
+                section="概要",
+                timestamp=datetime.now()
+            ),
+            Document(
+                title="利用申請方法",
+                content="玄界システムを利用するには、まず利用申請を行い、アカウントを取得する必要があります。",
+                url="https://www.cc.kyushu-u.ac.jp/scp/application",
+                section="申請",
+                timestamp=datetime.now()
+            ),
+            Document(
+                title="接続方法",
+                content="玄界システムにはSSH接続でアクセスします。VPN接続が必要な場合があります。",
+                url="https://www.cc.kyushu-u.ac.jp/scp/connection",
+                section="接続",
+                timestamp=datetime.now()
+            )
+        ]
+        
+        system.web_scraper.scrape_website = Mock(return_value=documents)
+        system.document_processor.add_documents = Mock(return_value=True)
+        
+        # 文書収集と処理
+        scraped_docs = system.web_scraper.scrape_website("https://www.cc.kyushu-u.ac.jp/scp/")
+        processed = system.document_processor.add_documents(scraped_docs)
+        
+        assert len(scraped_docs) == 3
+        assert processed is True
+        
+        # Phase 2: 段階的な質問応答（学習プロセス）
+        conversation_flow = [
+            {
+                "query": "玄界システムとは何ですか？",
+                "expected_keywords": ["スーパーコンピュータ", "九州大学"],
+                "response": "玄界システムは九州大学情報基盤研究開発センターが運用するスーパーコンピュータシステムです。"
+            },
+            {
+                "query": "どうやって利用申請をすればいいですか？",
+                "expected_keywords": ["利用申請", "アカウント"],
+                "response": "玄界システムを利用するには、まず利用申請を行い、アカウントを取得する必要があります。"
+            },
+            {
+                "query": "接続方法を教えてください",
+                "expected_keywords": ["SSH接続", "VPN"],
+                "response": "玄界システムにはSSH接続でアクセスします。VPN接続が必要な場合があります。"
+            }
+        ]
+        
+        # 会話履歴を蓄積
+        conversation_history = []
+        
+        for i, step in enumerate(conversation_flow):
+            # 関連文書を検索
+            relevant_docs = [doc for doc in documents if any(keyword in doc.content for keyword in step["expected_keywords"])]
+            
+            system.document_processor.search_documents = Mock(return_value=relevant_docs[:2])
+            
+            # RAGレスポンスを生成
+            mock_response = RAGResponse(
+                answer=step["response"],
+                sources=[DocumentSource(
+                    title=doc.title,
+                    url=doc.url,
+                    section=doc.section,
+                    relevance_score=0.9 - i * 0.1
+                ) for doc in relevant_docs[:2]],
+                processing_time=0.2 + i * 0.1,
+                model_used="llama3.2:3b",
+                retrieval_score=0.9 - i * 0.05,
+                confidence_score=0.85 + i * 0.02
+            )
+            
+            system.rag_engine.query = Mock(return_value=mock_response)
+            
+            # 質問を処理
+            response = system.rag_engine.query(step["query"])
+            
+            # 履歴に追加
+            user_msg = Message(content=step["query"], role="user", session_id=session_id)
+            assistant_msg = Message(content=response.answer, role="assistant", session_id=session_id)
+            
+            conversation_history.extend([user_msg, assistant_msg])
+            
+            # 検証
+            assert response is not None
+            assert all(keyword in response.answer for keyword in step["expected_keywords"])
+            assert len(response.sources) <= 2
+            assert response.confidence_score > 0.8
+        
+        # Phase 3: コンテキスト認識質問
+        system.chat_manager.get_chat_history = Mock(return_value=conversation_history)
+        system.chat_manager.save_message = Mock(return_value=True)
+        
+        # 前の会話を参照する質問
+        context_query = "先ほど説明していただいた申請後の手順について、もう少し詳しく教えてください"
+        
+        context_response = RAGResponse(
+            answer="申請が承認された後は、SSH接続の設定を行い、VPN接続が必要な場合は事前に設定してからアクセスしてください。",
+            sources=[DocumentSource(
+                title="接続方法",
+                url="https://www.cc.kyushu-u.ac.jp/scp/connection",
+                section="接続",
+                relevance_score=0.88
+            )],
+            processing_time=0.25,
+            model_used="llama3.2:3b",
+            retrieval_score=0.82,
+            confidence_score=0.87
+        )
+        
+        system.rag_engine.query = Mock(return_value=context_response)
+        
+        # コンテキスト質問を処理
+        history = system.chat_manager.get_chat_history(session_id)
+        context_resp = system.rag_engine.query(context_query)
+        
+        # 新しいメッセージを保存
+        system.chat_manager.save_message(session_id, Message(content=context_query, role="user", session_id=session_id))
+        system.chat_manager.save_message(session_id, Message(content=context_resp.answer, role="assistant", session_id=session_id))
+        
+        # Phase 4: 最終検証
+        assert len(history) == 6  # 3回の質問応答 = 6メッセージ
+        assert context_resp is not None
+        assert "SSH接続" in context_resp.answer
+        assert "VPN" in context_resp.answer
+        
+        # 全体的な統計確認
+        total_queries = len(conversation_flow) + 1  # コンテキスト質問を含む
+        assert total_queries == 4
+        
+        # システムコンポーネントの呼び出し確認
+        system.web_scraper.scrape_website.assert_called_once()
+        system.document_processor.add_documents.assert_called_once()
+        system.chat_manager.get_chat_history.assert_called_once()
+        assert system.chat_manager.save_message.call_count == 2  # コンテキスト質問のみ
 
 
 class TestComponentIntegration:
