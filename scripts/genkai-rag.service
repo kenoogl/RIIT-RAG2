@@ -1,0 +1,35 @@
+[Unit]
+Description=Genkai RAG System
+Documentation=https://github.com/your-org/genkai-rag-system
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=genkai
+Group=genkai
+WorkingDirectory=/opt/genkai-rag-system
+Environment=PYTHONPATH=/opt/genkai-rag-system
+Environment=GENKAI_CONFIG_PATH=/opt/genkai-rag-system/config/production.yaml
+Environment=GENKAI_LOG_LEVEL=INFO
+ExecStart=/opt/genkai-rag-system/venv/bin/python main.py server --config /opt/genkai-rag-system/config/production.yaml
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=genkai-rag
+
+# セキュリティ設定
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/genkai-rag-system/data /opt/genkai-rag-system/logs /opt/genkai-rag-system/backups
+
+# リソース制限
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

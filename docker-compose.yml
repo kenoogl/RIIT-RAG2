@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  genkai-rag:
+    build: .
+    container_name: genkai-rag-system
+    ports:
+      - "${GENKAI_PORT:-8000}:8000"
+    environment:
+      - GENKAI_CONFIG_PATH=/app/config/production.yaml
+      - GENKAI_LOG_LEVEL=${GENKAI_LOG_LEVEL:-INFO}
+      - GENKAI_DATA_DIR=/app/data
+      - GENKAI_OLLAMA_URL=${GENKAI_OLLAMA_URL:-http://ollama:11434}
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./backups:/app/backups
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    networks:
+      - genkai-network
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: genkai-ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    restart: unless-stopped
+    networks:
+      - genkai-network
+    # GPUサポート（利用可能な場合）
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  ollama_data:
+
+networks:
+  genkai-network:
+    driver: bridge

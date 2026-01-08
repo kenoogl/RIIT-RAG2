@@ -31,6 +31,7 @@ query_router = APIRouter()
 model_router = APIRouter()
 chat_router = APIRouter()
 system_router = APIRouter()
+health_router = APIRouter()
 
 
 # 依存性注入用の関数（後でapp.pyから注入される）
@@ -459,5 +460,104 @@ async def health_check(
         logger.error(f"Error in health check: {str(e)}", exc_info=True)
         return {
             "overall": "unhealthy",
+            "error": str(e)
+        }
+
+
+# ヘルスチェックAPI
+@health_router.get("/health")
+async def health_check_simple() -> Dict[str, Any]:
+    """
+    シンプルなヘルスチェック（依存関係なし）
+    
+    Returns:
+        基本的なヘルスチェック結果
+    """
+    return {
+        "status": "healthy",
+        "timestamp": time.time(),
+        "service": "genkai-rag-system",
+        "version": "1.0.0"
+    }
+
+
+@health_router.get("/health/detailed")
+async def health_check_detailed(
+    system_monitor: SystemMonitor = Depends(get_system_monitor),
+    llm_manager: LLMManager = Depends(get_llm_manager),
+    chat_manager: ChatManager = Depends(get_chat_manager)
+) -> Dict[str, Any]:
+    """
+    詳細なヘルスチェック
+    
+    Args:
+        system_monitor: システムモニター
+        llm_manager: LLMマネージャー
+        chat_manager: チャットマネージャー
+        
+    Returns:
+        詳細なヘルスチェック結果
+    """
+    try:
+        # システムリソースをチェック
+        system_status = system_monitor.get_system_status()
+        
+        # LLMの健全性をチェック
+        llm_health = await llm_manager.check_model_health()
+        
+        # チャットマネージャーの状態をチェック
+        active_sessions = len(chat_manager.list_sessions())
+        
+        # 各コンポーネントの状態
+        components = {
+            "system_monitor": "healthy",
+            "llm_manager": "healthy" if llm_health else "unhealthy",
+            "chat_manager": "healthy",
+            "database": "healthy"  # TODO: 実際のDBヘルスチェック
+        }
+        
+        # リソース使用率をチェック
+        memory_usage_percent = (system_status.memory_usage_mb / system_status.total_memory_mb) * 100 if system_status.total_memory_mb > 0 else 0
+        disk_usage_percent = (system_status.disk_usage_mb / system_status.total_disk_mb) * 100 if system_status.total_disk_mb > 0 else 0
+        
+        # 警告レベルをチェック
+        warnings = []
+        if memory_usage_percent > 80:
+            warnings.append(f"High memory usage: {memory_usage_percent:.1f}%")
+            components["system_monitor"] = "warning"
+        
+        if disk_usage_percent > 90:
+            warnings.append(f"High disk usage: {disk_usage_percent:.1f}%")
+            components["system_monitor"] = "warning"
+        
+        # 全体的な健全性を判定
+        overall_status = "healthy"
+        if any(status == "unhealthy" for status in components.values()):
+            overall_status = "unhealthy"
+        elif any(status == "warning" for status in components.values()):
+            overall_status = "warning"
+        
+        return {
+            "status": overall_status,
+            "timestamp": time.time(),
+            "service": "genkai-rag-system",
+            "version": "1.0.0",
+            "components": components,
+            "metrics": {
+                "memory_usage_percent": memory_usage_percent,
+                "disk_usage_percent": disk_usage_percent,
+                "active_sessions": active_sessions,
+                "uptime_seconds": system_status.uptime_seconds
+            },
+            "warnings": warnings
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in detailed health check: {str(e)}", exc_info=True)
+        return {
+            "status": "unhealthy",
+            "timestamp": time.time(),
+            "service": "genkai-rag-system",
+            "version": "1.0.0",
             "error": str(e)
         }

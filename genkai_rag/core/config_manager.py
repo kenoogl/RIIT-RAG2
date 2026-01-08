@@ -7,6 +7,8 @@ ConfigManagerクラス
 
 import json
 import yaml
+import os
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -143,6 +145,42 @@ class ConfigManager:
             self.save_config(default_config)
             logger.info("Default configuration created")
     
+    def _expand_environment_variables(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        設定値の環境変数を展開
+        
+        ${VAR_NAME:-default_value} 形式の環境変数を展開します。
+        
+        Args:
+            config: 設定辞書
+            
+        Returns:
+            環境変数が展開された設定辞書
+        """
+        def expand_value(value: Any) -> Any:
+            if isinstance(value, str):
+                # ${VAR_NAME:-default} 形式の環境変数を展開
+                pattern = r'\$\{([^}]+)\}'
+                
+                def replace_env_var(match):
+                    env_expr = match.group(1)
+                    if ':-' in env_expr:
+                        var_name, default_value = env_expr.split(':-', 1)
+                        return os.getenv(var_name.strip(), default_value.strip())
+                    else:
+                        var_name = env_expr.strip()
+                        return os.getenv(var_name, match.group(0))  # 見つからない場合は元の文字列
+                
+                return re.sub(pattern, replace_env_var, value)
+            elif isinstance(value, dict):
+                return {k: expand_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [expand_value(item) for item in value]
+            else:
+                return value
+        
+        return expand_value(config)
+    
     def load_config(self) -> Dict[str, Any]:
         """
         設定ファイルを読み込み
@@ -165,6 +203,9 @@ class ConfigManager:
                 
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = yaml.safe_load(f)
+                
+                # 環境変数を展開
+                config = self._expand_environment_variables(config)
                 
                 # キャッシュを更新
                 self._config_cache = config

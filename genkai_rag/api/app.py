@@ -200,11 +200,12 @@ def create_app(dependencies: Optional[Dict[str, Any]] = None, config: Optional[D
     app.add_middleware(ErrorHandlingMiddleware)
     
     # APIルーターの登録
-    from .routes import query_router, model_router, chat_router, system_router
+    from .routes import query_router, model_router, chat_router, system_router, health_router
     app.include_router(query_router, prefix="/api", tags=["query"])
     app.include_router(model_router, prefix="/api", tags=["models"])
     app.include_router(chat_router, prefix="/api", tags=["chat"])
     app.include_router(system_router, prefix="/api", tags=["system"])
+    app.include_router(health_router, prefix="/api", tags=["health"])
     
     # 静的ファイルの設定
     try:
