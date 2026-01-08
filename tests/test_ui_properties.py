@@ -19,7 +19,7 @@ from genkai_rag.api.app import create_app
 class MockRAGEngine:
     """RAGエンジンのモッククラス"""
     
-    async def query(self, question, model_name=None, max_sources=5, context_messages=None):
+    def query(self, question, chat_history=None, model_name=None):
         from genkai_rag.core.rag_engine import RAGResponse
         from genkai_rag.models.document import DocumentSource
         
@@ -100,6 +100,45 @@ class MockSystemMonitor:
             memory_usage_mb = 512.0
             disk_usage_mb = 1024.0
         return Status()
+    
+    def get_performance_stats(self, operation_type=None, hours=24):
+        """パフォーマンス統計のモック"""
+        from genkai_rag.core.system_monitor import PerformanceStats
+        
+        if operation_type:
+            return {
+                operation_type: PerformanceStats(
+                    operation_type=operation_type,
+                    total_requests=10,
+                    successful_requests=9,
+                    failed_requests=1,
+                    avg_response_time_ms=150.0,
+                    min_response_time_ms=50.0,
+                    max_response_time_ms=300.0,
+                    p50_response_time_ms=120.0,
+                    p95_response_time_ms=250.0,
+                    p99_response_time_ms=290.0,
+                    error_rate_percent=10.0,
+                    requests_per_minute=0.4
+                )
+            }
+        else:
+            return {
+                "query": PerformanceStats(
+                    operation_type="query",
+                    total_requests=10,
+                    successful_requests=9,
+                    failed_requests=1,
+                    avg_response_time_ms=150.0,
+                    min_response_time_ms=50.0,
+                    max_response_time_ms=300.0,
+                    p50_response_time_ms=120.0,
+                    p95_response_time_ms=250.0,
+                    p99_response_time_ms=290.0,
+                    error_rate_percent=10.0,
+                    requests_per_minute=0.4
+                )
+            }
 
 
 class MockConfigManager:
@@ -118,6 +157,33 @@ class MockDocumentProcessor:
     pass
 
 
+class MockConcurrencyManager:
+    """同時アクセス管理のモッククラス"""
+    
+    async def execute_with_concurrency_control(self, handler, *args, **kwargs):
+        # request_idとclient_idを除外（実際のハンドラーが受け取らないため）
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k not in ['request_id', 'client_id']}
+        
+        # ハンドラーが非同期かどうかを確認
+        import asyncio
+        if asyncio.iscoroutinefunction(handler):
+            return await handler(*args, **filtered_kwargs)
+        else:
+            # 同期ハンドラーの場合は直接実行
+            return handler(*args, **filtered_kwargs)
+    
+    def get_metrics(self):
+        return {
+            "total_requests": 10,
+            "completed_requests": 9,
+            "failed_requests": 1,
+            "success_rate": 0.9,
+            "average_processing_time": 0.5,
+            "queue_size": 0,
+            "active_connections": 2
+        }
+
+
 @pytest.fixture
 def test_client():
     """テスト用FastAPIクライアントを作成"""
@@ -128,7 +194,8 @@ def test_client():
         "chat_manager": MockChatManager(),
         "system_monitor": MockSystemMonitor(),
         "config_manager": MockConfigManager(),
-        "document_processor": MockDocumentProcessor()
+        "document_processor": MockDocumentProcessor(),
+        "concurrency_manager": MockConcurrencyManager()
     }
     
     # アプリケーションを作成
@@ -136,13 +203,14 @@ def test_client():
     
     # 依存性注入のオーバーライド
     from genkai_rag.api.routes import (
-        get_rag_engine, get_llm_manager, get_chat_manager, get_system_monitor
+        get_rag_engine, get_llm_manager, get_chat_manager, get_system_monitor, get_concurrency_manager
     )
     
     app.dependency_overrides[get_rag_engine] = lambda: dependencies["rag_engine"]
     app.dependency_overrides[get_llm_manager] = lambda: dependencies["llm_manager"]
     app.dependency_overrides[get_chat_manager] = lambda: dependencies["chat_manager"]
     app.dependency_overrides[get_system_monitor] = lambda: dependencies["system_monitor"]
+    app.dependency_overrides[get_concurrency_manager] = lambda: dependencies["concurrency_manager"]
     
     yield TestClient(app)
 

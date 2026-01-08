@@ -6,7 +6,7 @@ FastAPI ルーター実装
 
 import logging
 import time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -168,14 +168,13 @@ async def _process_query_internal(
     context_messages = []
     if request.include_history:
         history = chat_manager.get_chat_history(request.session_id, limit=5)
-        context_messages = [msg.to_dict() for msg in history]
+        context_messages = history  # Messageオブジェクトのリストとして渡す
     
     # RAGエンジンで質問応答を実行
-    return await rag_engine.query(
+    return rag_engine.query(
         question=request.question,
-        model_name=request.model_name,
-        max_sources=request.max_sources,
-        context_messages=context_messages
+        chat_history=context_messages,
+        model_name=request.model_name
     )
 
 
@@ -451,6 +450,9 @@ async def get_system_status(
         if concurrency_manager:
             concurrency_metrics = concurrency_manager.get_metrics()
         
+        # パフォーマンス統計を取得
+        performance_stats = system_monitor.get_performance_stats(hours=24)
+        
         return SystemStatusResponse(
             status="healthy",  # TODO: 実際のヘルスチェックロジックを実装
             version="1.0.0",
@@ -460,7 +462,8 @@ async def get_system_status(
             active_sessions=active_sessions,
             total_queries=concurrency_metrics.get("total_requests", 0),
             current_model=current_model,
-            concurrency_metrics=concurrency_metrics
+            concurrency_metrics=concurrency_metrics,
+            performance_stats=performance_stats
         )
         
     except Exception as e:
@@ -622,3 +625,68 @@ async def health_check_detailed(
             "version": "1.0.0",
             "error": str(e)
         }
+
+
+@system_router.get("/system/performance", response_model=Dict[str, Any])
+async def get_performance_metrics(
+    operation_type: Optional[str] = None,
+    hours: int = 24,
+    system_monitor: SystemMonitor = Depends(get_system_monitor)
+) -> Dict[str, Any]:
+    """
+    パフォーマンスメトリクスを取得
+    
+    Args:
+        operation_type: 特定の操作タイプ（Noneの場合は全タイプ）
+        hours: 統計期間（時間）
+        system_monitor: システムモニター
+        
+    Returns:
+        パフォーマンスメトリクス
+    """
+    try:
+        # パフォーマンス統計を取得
+        stats = system_monitor.get_performance_stats(operation_type=operation_type, hours=hours)
+        
+        # レスポンス時間履歴を取得
+        history = system_monitor.get_response_time_history(operation_type=operation_type, hours=hours)
+        
+        return {
+            "performance_stats": {op_type: stat.to_dict() for op_type, stat in stats.items()},
+            "response_time_history": [metric.to_dict() for metric in history[-100:]],  # 最新100件
+            "total_metrics": len(history),
+            "time_range_hours": hours,
+            "operation_type_filter": operation_type
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to get performance metrics")
+
+
+@system_router.delete("/system/performance", response_model=StatusResponse)
+async def clear_performance_metrics(
+    operation_type: Optional[str] = None,
+    system_monitor: SystemMonitor = Depends(get_system_monitor)
+) -> StatusResponse:
+    """
+    パフォーマンスメトリクスをクリア
+    
+    Args:
+        operation_type: 特定の操作タイプ（Noneの場合は全タイプ）
+        system_monitor: システムモニター
+        
+    Returns:
+        ステータスレスポンス
+    """
+    try:
+        cleared_count = system_monitor.clear_performance_metrics(operation_type=operation_type)
+        
+        return create_success_response(
+            f"Cleared {cleared_count} performance metrics",
+            {"cleared_count": cleared_count, "operation_type": operation_type}
+        )
+        
+    except Exception as e:
+        logger.error(f"Error clearing performance metrics: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to clear performance metrics")

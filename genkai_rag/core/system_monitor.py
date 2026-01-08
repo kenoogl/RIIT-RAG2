@@ -10,14 +10,72 @@ import psutil
 import logging
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable
 from datetime import datetime, timedelta
 import threading
 import time
 from dataclasses import dataclass, asdict
 import shutil
+import asyncio
+from functools import wraps
+import statistics
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ResponseTimeMetrics:
+    """レスポンス時間メトリクスのデータクラス"""
+    operation_type: str
+    timestamp: datetime
+    response_time_ms: float
+    success: bool
+    error_message: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "operation_type": self.operation_type,
+            "timestamp": self.timestamp.isoformat(),
+            "response_time_ms": self.response_time_ms,
+            "success": self.success,
+            "error_message": self.error_message,
+            "metadata": self.metadata or {}
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ResponseTimeMetrics':
+        """辞書から復元"""
+        return cls(
+            operation_type=data["operation_type"],
+            timestamp=datetime.fromisoformat(data["timestamp"]),
+            response_time_ms=data["response_time_ms"],
+            success=data["success"],
+            error_message=data.get("error_message"),
+            metadata=data.get("metadata", {})
+        )
+
+
+@dataclass
+class PerformanceStats:
+    """パフォーマンス統計のデータクラス"""
+    operation_type: str
+    total_requests: int
+    successful_requests: int
+    failed_requests: int
+    avg_response_time_ms: float
+    min_response_time_ms: float
+    max_response_time_ms: float
+    p50_response_time_ms: float
+    p95_response_time_ms: float
+    p99_response_time_ms: float
+    error_rate_percent: float
+    requests_per_minute: float
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return asdict(self)
 
 
 @dataclass
@@ -104,6 +162,7 @@ class SystemMonitor:
         # 監視ログファイル
         self.status_log_file = self.log_dir / "system_status.json"
         self.alert_log_file = self.log_dir / "system_alerts.json"
+        self.performance_log_file = self.log_dir / "performance_metrics.json"
         
         # アラート閾値
         self.thresholds = AlertThreshold()
@@ -115,6 +174,11 @@ class SystemMonitor:
         
         # システム起動時刻
         self._boot_time = datetime.fromtimestamp(psutil.boot_time())
+        
+        # レスポンス時間メトリクス用
+        self._response_metrics: List[ResponseTimeMetrics] = []
+        self._metrics_lock = threading.RLock()
+        self._max_metrics_in_memory = 1000  # メモリ内に保持する最大メトリクス数
         
         # ディレクトリ作成
         self._ensure_directories()
@@ -483,6 +547,214 @@ class SystemMonitor:
         """監視が有効かチェック"""
         return self._monitoring_active
     
+    def record_response_time(self, operation_type: str, response_time_ms: float, 
+                           success: bool = True, error_message: Optional[str] = None,
+                           metadata: Optional[Dict[str, Any]] = None) -> None:
+        """
+        レスポンス時間を記録
+        
+        Args:
+            operation_type: 操作タイプ（例: "query", "model_switch", "document_processing"）
+            response_time_ms: レスポンス時間（ミリ秒）
+            success: 操作が成功したかどうか
+            error_message: エラーメッセージ（失敗時）
+            metadata: 追加のメタデータ
+        """
+        try:
+            with self._metrics_lock:
+                # メトリクスを作成
+                metric = ResponseTimeMetrics(
+                    operation_type=operation_type,
+                    timestamp=datetime.now(),
+                    response_time_ms=response_time_ms,
+                    success=success,
+                    error_message=error_message,
+                    metadata=metadata or {}
+                )
+                
+                # メモリ内リストに追加
+                self._response_metrics.append(metric)
+                
+                # メモリ内メトリクス数を制限
+                if len(self._response_metrics) > self._max_metrics_in_memory:
+                    # 古いメトリクスをファイルに保存してメモリから削除
+                    self._flush_metrics_to_file()
+                
+                logger.debug(f"Recorded response time: {operation_type} = {response_time_ms:.2f}ms")
+                
+        except Exception as e:
+            logger.error(f"Failed to record response time: {e}")
+    
+    def get_performance_stats(self, operation_type: Optional[str] = None, 
+                            hours: int = 24) -> Dict[str, PerformanceStats]:
+        """
+        パフォーマンス統計を取得
+        
+        Args:
+            operation_type: 特定の操作タイプ（Noneの場合は全タイプ）
+            hours: 統計期間（時間）
+            
+        Returns:
+            操作タイプ別のパフォーマンス統計
+        """
+        try:
+            # 指定期間のメトリクスを取得
+            metrics = self._get_metrics_in_timerange(hours)
+            
+            # 操作タイプでフィルタ
+            if operation_type:
+                metrics = [m for m in metrics if m.operation_type == operation_type]
+            
+            # 操作タイプ別に統計を計算
+            stats_by_type = {}
+            
+            # 操作タイプごとにグループ化
+            metrics_by_type = {}
+            for metric in metrics:
+                if metric.operation_type not in metrics_by_type:
+                    metrics_by_type[metric.operation_type] = []
+                metrics_by_type[metric.operation_type].append(metric)
+            
+            # 各操作タイプの統計を計算
+            for op_type, type_metrics in metrics_by_type.items():
+                stats_by_type[op_type] = self._calculate_performance_stats(op_type, type_metrics, hours)
+            
+            return stats_by_type
+            
+        except Exception as e:
+            logger.error(f"Failed to get performance stats: {e}")
+            return {}
+    
+    def get_response_time_history(self, operation_type: Optional[str] = None,
+                                hours: int = 24) -> List[ResponseTimeMetrics]:
+        """
+        レスポンス時間履歴を取得
+        
+        Args:
+            operation_type: 特定の操作タイプ（Noneの場合は全タイプ）
+            hours: 取得期間（時間）
+            
+        Returns:
+            レスポンス時間メトリクスのリスト
+        """
+        try:
+            # 指定期間のメトリクスを取得
+            metrics = self._get_metrics_in_timerange(hours)
+            
+            # 操作タイプでフィルタ
+            if operation_type:
+                metrics = [m for m in metrics if m.operation_type == operation_type]
+            
+            # 時刻順にソート
+            metrics.sort(key=lambda x: x.timestamp)
+            
+            return metrics
+            
+        except Exception as e:
+            logger.error(f"Failed to get response time history: {e}")
+            return []
+    
+    def measure_response_time(self, operation_type: str, metadata: Optional[Dict[str, Any]] = None):
+        """
+        レスポンス時間測定用デコレータ
+        
+        Args:
+            operation_type: 操作タイプ
+            metadata: 追加のメタデータ
+            
+        Returns:
+            デコレータ関数
+        """
+        def decorator(func: Callable):
+            if asyncio.iscoroutinefunction(func):
+                @wraps(func)
+                async def async_wrapper(*args, **kwargs):
+                    start_time = time.time()
+                    success = True
+                    error_message = None
+                    
+                    try:
+                        result = await func(*args, **kwargs)
+                        return result
+                    except Exception as e:
+                        success = False
+                        error_message = str(e)
+                        raise
+                    finally:
+                        response_time_ms = (time.time() - start_time) * 1000
+                        self.record_response_time(
+                            operation_type=operation_type,
+                            response_time_ms=response_time_ms,
+                            success=success,
+                            error_message=error_message,
+                            metadata=metadata
+                        )
+                
+                return async_wrapper
+            else:
+                @wraps(func)
+                def sync_wrapper(*args, **kwargs):
+                    start_time = time.time()
+                    success = True
+                    error_message = None
+                    
+                    try:
+                        result = func(*args, **kwargs)
+                        return result
+                    except Exception as e:
+                        success = False
+                        error_message = str(e)
+                        raise
+                    finally:
+                        response_time_ms = (time.time() - start_time) * 1000
+                        self.record_response_time(
+                            operation_type=operation_type,
+                            response_time_ms=response_time_ms,
+                            success=success,
+                            error_message=error_message,
+                            metadata=metadata
+                        )
+                
+                return sync_wrapper
+        
+        return decorator
+    
+    def clear_performance_metrics(self, operation_type: Optional[str] = None) -> int:
+        """
+        パフォーマンスメトリクスをクリア
+        
+        Args:
+            operation_type: 特定の操作タイプ（Noneの場合は全タイプ）
+            
+        Returns:
+            削除されたメトリクス数
+        """
+        try:
+            with self._metrics_lock:
+                if operation_type is None:
+                    # 全メトリクスをクリア
+                    cleared_count = len(self._response_metrics)
+                    self._response_metrics.clear()
+                else:
+                    # 特定の操作タイプのみクリア
+                    original_count = len(self._response_metrics)
+                    self._response_metrics = [
+                        m for m in self._response_metrics 
+                        if m.operation_type != operation_type
+                    ]
+                    cleared_count = original_count - len(self._response_metrics)
+                
+                # ファイルからも削除（簡単のため全体を再書き込み）
+                if operation_type is None and self.performance_log_file.exists():
+                    self.performance_log_file.unlink()
+                
+                logger.info(f"Cleared {cleared_count} performance metrics")
+                return cleared_count
+                
+        except Exception as e:
+            logger.error(f"Failed to clear performance metrics: {e}")
+            return 0
+    
     def _monitoring_loop(self) -> None:
         """バックグラウンド監視のメインループ"""
         logger.info("Monitoring loop started")
@@ -656,3 +928,150 @@ class SystemMonitor:
             logger.error(f"Failed to cleanup alert log: {e}")
         
         return deleted_count
+    
+    def _flush_metrics_to_file(self) -> None:
+        """メモリ内のメトリクスをファイルに保存"""
+        try:
+            if not self._response_metrics:
+                return
+            
+            # 既存のメトリクスを読み込み
+            existing_metrics = []
+            if self.performance_log_file.exists():
+                with open(self.performance_log_file, 'r', encoding='utf-8') as f:
+                    try:
+                        existing_data = json.load(f)
+                        existing_metrics = existing_data if isinstance(existing_data, list) else []
+                    except json.JSONDecodeError:
+                        existing_metrics = []
+            
+            # 新しいメトリクスを追加
+            new_metrics = [metric.to_dict() for metric in self._response_metrics]
+            all_metrics = existing_metrics + new_metrics
+            
+            # ファイルサイズを制限（最新5000件まで）
+            if len(all_metrics) > 5000:
+                all_metrics = all_metrics[-5000:]
+            
+            # ファイルに保存
+            with open(self.performance_log_file, 'w', encoding='utf-8') as f:
+                json.dump(all_metrics, f, indent=2, ensure_ascii=False)
+            
+            # メモリ内メトリクスをクリア（半分だけ残す）
+            keep_count = self._max_metrics_in_memory // 2
+            self._response_metrics = self._response_metrics[-keep_count:]
+            
+        except Exception as e:
+            logger.error(f"Failed to flush metrics to file: {e}")
+    
+    def _get_metrics_in_timerange(self, hours: int) -> List[ResponseTimeMetrics]:
+        """指定時間範囲内のメトリクスを取得"""
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        all_metrics = []
+        
+        try:
+            # メモリ内のメトリクスを追加
+            with self._metrics_lock:
+                for metric in self._response_metrics:
+                    if metric.timestamp >= cutoff_time:
+                        all_metrics.append(metric)
+            
+            # ファイルからメトリクスを読み込み
+            if self.performance_log_file.exists():
+                with open(self.performance_log_file, 'r', encoding='utf-8') as f:
+                    try:
+                        file_data = json.load(f)
+                        for metric_dict in file_data:
+                            try:
+                                metric = ResponseTimeMetrics.from_dict(metric_dict)
+                                if metric.timestamp >= cutoff_time:
+                                    all_metrics.append(metric)
+                            except (KeyError, ValueError):
+                                continue  # 無効なメトリクスはスキップ
+                    except json.JSONDecodeError:
+                        pass  # ファイルが破損している場合はスキップ
+            
+            return all_metrics
+            
+        except Exception as e:
+            logger.error(f"Failed to get metrics in timerange: {e}")
+            return all_metrics
+    
+    def _calculate_performance_stats(self, operation_type: str, 
+                                   metrics: List[ResponseTimeMetrics], 
+                                   hours: int) -> PerformanceStats:
+        """パフォーマンス統計を計算"""
+        if not metrics:
+            return PerformanceStats(
+                operation_type=operation_type,
+                total_requests=0,
+                successful_requests=0,
+                failed_requests=0,
+                avg_response_time_ms=0.0,
+                min_response_time_ms=0.0,
+                max_response_time_ms=0.0,
+                p50_response_time_ms=0.0,
+                p95_response_time_ms=0.0,
+                p99_response_time_ms=0.0,
+                error_rate_percent=0.0,
+                requests_per_minute=0.0
+            )
+        
+        # 基本統計
+        total_requests = len(metrics)
+        successful_requests = sum(1 for m in metrics if m.success)
+        failed_requests = total_requests - successful_requests
+        
+        # レスポンス時間統計
+        response_times = [m.response_time_ms for m in metrics]
+        avg_response_time = statistics.mean(response_times)
+        min_response_time = min(response_times)
+        max_response_time = max(response_times)
+        
+        # パーセンタイル計算
+        sorted_times = sorted(response_times)
+        p50 = self._calculate_percentile(sorted_times, 50)
+        p95 = self._calculate_percentile(sorted_times, 95)
+        p99 = self._calculate_percentile(sorted_times, 99)
+        
+        # エラー率
+        error_rate = (failed_requests / total_requests) * 100 if total_requests > 0 else 0.0
+        
+        # 分あたりのリクエスト数
+        requests_per_minute = (total_requests / hours) * 60 if hours > 0 else 0.0
+        
+        return PerformanceStats(
+            operation_type=operation_type,
+            total_requests=total_requests,
+            successful_requests=successful_requests,
+            failed_requests=failed_requests,
+            avg_response_time_ms=avg_response_time,
+            min_response_time_ms=min_response_time,
+            max_response_time_ms=max_response_time,
+            p50_response_time_ms=p50,
+            p95_response_time_ms=p95,
+            p99_response_time_ms=p99,
+            error_rate_percent=error_rate,
+            requests_per_minute=requests_per_minute
+        )
+    
+    def _calculate_percentile(self, sorted_values: List[float], percentile: int) -> float:
+        """パーセンタイルを計算"""
+        if not sorted_values:
+            return 0.0
+        
+        if percentile <= 0:
+            return sorted_values[0]
+        if percentile >= 100:
+            return sorted_values[-1]
+        
+        index = (percentile / 100.0) * (len(sorted_values) - 1)
+        lower_index = int(index)
+        upper_index = min(lower_index + 1, len(sorted_values) - 1)
+        
+        if lower_index == upper_index:
+            return sorted_values[lower_index]
+        
+        # 線形補間
+        weight = index - lower_index
+        return sorted_values[lower_index] * (1 - weight) + sorted_values[upper_index] * weight

@@ -14,8 +14,12 @@ from datetime import datetime, timedelta
 from unittest.mock import Mock, patch, MagicMock
 from hypothesis import given, strategies as st, settings, assume
 import hypothesis
+import asyncio
 
-from genkai_rag.core.system_monitor import SystemMonitor, SystemStatus, AlertThreshold
+from genkai_rag.core.system_monitor import (
+    SystemMonitor, SystemStatus, AlertThreshold, 
+    ResponseTimeMetrics, PerformanceStats
+)
 
 
 # テスト用の軽量な戦略を定義
@@ -617,3 +621,444 @@ class TestAlertThreshold:
         assert threshold_dict["memory_percent"] == 75.0
         assert threshold_dict["disk_percent"] == 88.0
         assert threshold_dict["cpu_percent"] == 85.0
+
+
+class TestResponseTimeMonitoring:
+    """レスポンス時間監視機能のテスト"""
+    
+    def setup_method(self):
+        """各テストメソッドの前に実行される設定"""
+        self.temp_dir = tempfile.mkdtemp()
+        self.log_dir = Path(self.temp_dir) / "logs"
+        self.data_dir = Path(self.temp_dir) / "data"
+        
+        self.system_monitor = SystemMonitor(
+            log_dir=str(self.log_dir),
+            data_dir=str(self.data_dir),
+            monitoring_interval=1,
+            retention_days=7
+        )
+        
+        # メトリクスをクリア
+        self.system_monitor.clear_performance_metrics()
+    
+    def teardown_method(self):
+        """各テストメソッドの後に実行されるクリーンアップ"""
+        if self.system_monitor.is_monitoring_active():
+            self.system_monitor.stop_monitoring()
+        
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+    
+    def test_record_response_time(self):
+        """レスポンス時間記録テスト"""
+        # レスポンス時間を記録
+        self.system_monitor.record_response_time(
+            operation_type="query",
+            response_time_ms=150.5,
+            success=True,
+            metadata={"model": "test-model"}
+        )
+        
+        # 記録されたメトリクスを確認
+        history = self.system_monitor.get_response_time_history(hours=1)
+        assert len(history) == 1
+        
+        metric = history[0]
+        assert metric.operation_type == "query"
+        assert metric.response_time_ms == 150.5
+        assert metric.success is True
+        assert metric.metadata["model"] == "test-model"
+    
+    def test_record_failed_response_time(self):
+        """失敗したレスポンス時間記録テスト"""
+        self.system_monitor.record_response_time(
+            operation_type="model_switch",
+            response_time_ms=500.0,
+            success=False,
+            error_message="Model not found"
+        )
+        
+        history = self.system_monitor.get_response_time_history(hours=1)
+        assert len(history) == 1
+        
+        metric = history[0]
+        assert metric.operation_type == "model_switch"
+        assert metric.success is False
+        assert metric.error_message == "Model not found"
+    
+    def test_get_performance_stats(self):
+        """パフォーマンス統計取得テスト"""
+        # 複数のレスポンス時間を記録
+        response_times = [100.0, 150.0, 200.0, 120.0, 180.0]
+        for i, rt in enumerate(response_times):
+            self.system_monitor.record_response_time(
+                operation_type="query",
+                response_time_ms=rt,
+                success=i < 4  # 最後の1つは失敗
+            )
+        
+        # 統計を取得
+        stats = self.system_monitor.get_performance_stats(operation_type="query", hours=1)
+        
+        assert "query" in stats
+        query_stats = stats["query"]
+        
+        assert query_stats.total_requests == 5
+        assert query_stats.successful_requests == 4
+        assert query_stats.failed_requests == 1
+        assert query_stats.error_rate_percent == 20.0
+        assert query_stats.min_response_time_ms == 100.0
+        assert query_stats.max_response_time_ms == 200.0
+        assert 100.0 <= query_stats.avg_response_time_ms <= 200.0
+    
+    def test_get_performance_stats_multiple_operations(self):
+        """複数操作タイプのパフォーマンス統計テスト"""
+        # 異なる操作タイプのレスポンス時間を記録
+        self.system_monitor.record_response_time("query", 100.0, True)
+        self.system_monitor.record_response_time("query", 150.0, True)
+        self.system_monitor.record_response_time("model_switch", 500.0, True)
+        self.system_monitor.record_response_time("document_processing", 2000.0, True)
+        
+        # 全操作タイプの統計を取得
+        stats = self.system_monitor.get_performance_stats(hours=1)
+        
+        assert len(stats) == 3
+        assert "query" in stats
+        assert "model_switch" in stats
+        assert "document_processing" in stats
+        
+        # 各操作タイプの統計を確認
+        assert stats["query"].total_requests == 2
+        assert stats["model_switch"].total_requests == 1
+        assert stats["document_processing"].total_requests == 1
+    
+    def test_response_time_decorator_sync(self):
+        """同期関数のレスポンス時間測定デコレータテスト"""
+        @self.system_monitor.measure_response_time("test_operation")
+        def test_function(duration: float):
+            time.sleep(duration)
+            return "success"
+        
+        # 関数を実行
+        result = test_function(0.1)
+        assert result == "success"
+        
+        # レスポンス時間が記録されている
+        history = self.system_monitor.get_response_time_history(hours=1)
+        assert len(history) == 1
+        
+        metric = history[0]
+        assert metric.operation_type == "test_operation"
+        assert metric.success is True
+        assert metric.response_time_ms >= 100  # 少なくとも100ms
+    
+    def test_response_time_decorator_sync_with_error(self):
+        """エラーが発生する同期関数のデコレータテスト"""
+        @self.system_monitor.measure_response_time("test_error_operation")
+        def test_error_function():
+            raise ValueError("Test error")
+        
+        # 関数を実行してエラーを確認
+        with pytest.raises(ValueError, match="Test error"):
+            test_error_function()
+        
+        # エラーが記録されている
+        history = self.system_monitor.get_response_time_history(hours=1)
+        assert len(history) == 1
+        
+        metric = history[0]
+        assert metric.operation_type == "test_error_operation"
+        assert metric.success is False
+        assert metric.error_message == "Test error"
+    
+    @pytest.mark.asyncio
+    async def test_response_time_decorator_async(self):
+        """非同期関数のレスポンス時間測定デコレータテスト"""
+        @self.system_monitor.measure_response_time("async_test_operation")
+        async def async_test_function(duration: float):
+            await asyncio.sleep(duration)
+            return "async_success"
+        
+        # 非同期関数を実行
+        result = await async_test_function(0.1)
+        assert result == "async_success"
+        
+        # レスポンス時間が記録されている
+        history = self.system_monitor.get_response_time_history(hours=1)
+        assert len(history) == 1
+        
+        metric = history[0]
+        assert metric.operation_type == "async_test_operation"
+        assert metric.success is True
+        assert metric.response_time_ms >= 100  # 少なくとも100ms
+    
+    @pytest.mark.asyncio
+    async def test_response_time_decorator_async_with_error(self):
+        """エラーが発生する非同期関数のデコレータテスト"""
+        @self.system_monitor.measure_response_time("async_error_operation")
+        async def async_error_function():
+            raise RuntimeError("Async test error")
+        
+        # 非同期関数を実行してエラーを確認
+        with pytest.raises(RuntimeError, match="Async test error"):
+            await async_error_function()
+        
+        # エラーが記録されている
+        history = self.system_monitor.get_response_time_history(hours=1)
+        assert len(history) == 1
+        
+        metric = history[0]
+        assert metric.operation_type == "async_error_operation"
+        assert metric.success is False
+        assert metric.error_message == "Async test error"
+    
+    def test_clear_performance_metrics(self):
+        """パフォーマンスメトリクスクリアテスト"""
+        # 複数の操作タイプのメトリクスを記録
+        self.system_monitor.record_response_time("query", 100.0, True)
+        self.system_monitor.record_response_time("query", 150.0, True)
+        self.system_monitor.record_response_time("model_switch", 500.0, True)
+        
+        # 特定の操作タイプをクリア
+        cleared_count = self.system_monitor.clear_performance_metrics("query")
+        assert cleared_count == 2
+        
+        # 残りのメトリクスを確認
+        history = self.system_monitor.get_response_time_history(hours=1)
+        assert len(history) == 1
+        assert history[0].operation_type == "model_switch"
+        
+        # 全メトリクスをクリア
+        cleared_count = self.system_monitor.clear_performance_metrics()
+        assert cleared_count == 1
+        
+        history = self.system_monitor.get_response_time_history(hours=1)
+        assert len(history) == 0
+    
+    def test_metrics_file_persistence(self):
+        """メトリクスファイル永続化テスト"""
+        # 既存のパフォーマンスログファイルを削除
+        if self.system_monitor.performance_log_file.exists():
+            self.system_monitor.performance_log_file.unlink()
+        
+        # 大量のメトリクスを記録してファイル保存をトリガー
+        for i in range(1100):  # max_metrics_in_memory (1000) を超える
+            self.system_monitor.record_response_time(
+                operation_type="bulk_test",
+                response_time_ms=100.0 + i,
+                success=True
+            )
+        
+        # パフォーマンスログファイルが作成されている
+        assert self.system_monitor.performance_log_file.exists()
+        
+        # ファイルから特定の操作タイプのメトリクスを読み込み可能
+        history = self.system_monitor.get_response_time_history(
+            operation_type="bulk_test", hours=1
+        )
+        # 少なくとも1100個のメトリクスが記録されている（他のテストからの残りも含む可能性）
+        assert len(history) >= 1100
+    
+    def test_response_time_history_filtering(self):
+        """レスポンス時間履歴フィルタリングテスト"""
+        # 異なる操作タイプのメトリクスを記録
+        self.system_monitor.record_response_time("query", 100.0, True)
+        self.system_monitor.record_response_time("model_switch", 200.0, True)
+        self.system_monitor.record_response_time("query", 150.0, True)
+        
+        # 特定の操作タイプの履歴を取得
+        query_history = self.system_monitor.get_response_time_history(
+            operation_type="query", hours=1
+        )
+        assert len(query_history) == 2
+        assert all(m.operation_type == "query" for m in query_history)
+        
+        # 全操作タイプの履歴を取得
+        all_history = self.system_monitor.get_response_time_history(hours=1)
+        assert len(all_history) == 3
+
+
+class TestSystemMonitorResponseTimeProperties:
+    """SystemMonitorのレスポンス時間監視プロパティベーステスト"""
+    
+    def setup_method(self):
+        """各テストメソッドの前に実行される設定"""
+        import uuid
+        self.temp_dir = tempfile.mkdtemp(suffix=f"_{str(uuid.uuid4())[:8]}")
+        self.log_dir = Path(self.temp_dir) / "logs"
+        self.data_dir = Path(self.temp_dir) / "data"
+        
+        self.system_monitor = SystemMonitor(
+            log_dir=str(self.log_dir),
+            data_dir=str(self.data_dir),
+            monitoring_interval=1,
+            retention_days=3
+        )
+        
+        # メトリクスをクリア
+        self.system_monitor.clear_performance_metrics()
+    
+    def teardown_method(self):
+        """各テストメソッドの後に実行されるクリーンアップ"""
+        if self.system_monitor.is_monitoring_active():
+            self.system_monitor.stop_monitoring()
+        
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+    
+    @given(
+        response_times=st.lists(
+            st.floats(min_value=1.0, max_value=10000.0, allow_nan=False, allow_infinity=False),
+            min_size=1, max_size=20
+        )
+    )
+    @settings(max_examples=10, deadline=3000, suppress_health_check=[hypothesis.HealthCheck.too_slow])
+    def test_response_time_measurement_properties(self, response_times):
+        """
+        Feature: genkai-rag-system, Property 18: 応答時間の測定
+        任意のレスポンス時間に対して、測定と記録が正確に行われる
+        """
+        operation_type = "property_test"
+        
+        # 各テスト実行前にメトリクスをクリア
+        self.system_monitor.clear_performance_metrics()
+        
+        # レスポンス時間を記録
+        for rt in response_times:
+            self.system_monitor.record_response_time(
+                operation_type=operation_type,
+                response_time_ms=rt,
+                success=True
+            )
+        
+        # 記録されたメトリクスを取得
+        history = self.system_monitor.get_response_time_history(
+            operation_type=operation_type, hours=1
+        )
+        
+        # 全てのレスポンス時間が記録されている
+        assert len(history) == len(response_times)
+        
+        # 記録された値が正確
+        recorded_times = [m.response_time_ms for m in history]
+        recorded_times.sort()
+        expected_times = sorted(response_times)
+        
+        for recorded, expected in zip(recorded_times, expected_times):
+            assert abs(recorded - expected) < 0.001  # 浮動小数点誤差を考慮
+        
+        # パフォーマンス統計が正確
+        stats = self.system_monitor.get_performance_stats(
+            operation_type=operation_type, hours=1
+        )
+        
+        if operation_type in stats:
+            stat = stats[operation_type]
+            assert stat.total_requests == len(response_times)
+            assert stat.successful_requests == len(response_times)
+            assert stat.failed_requests == 0
+            assert stat.min_response_time_ms == min(response_times)
+            assert stat.max_response_time_ms == max(response_times)
+
+
+class TestResponseTimeMetrics:
+    """ResponseTimeMetricsクラスのテスト"""
+    
+    def test_response_time_metrics_creation(self):
+        """ResponseTimeMetrics作成テスト"""
+        timestamp = datetime.now()
+        metric = ResponseTimeMetrics(
+            operation_type="test_operation",
+            timestamp=timestamp,
+            response_time_ms=123.45,
+            success=True,
+            metadata={"key": "value"}
+        )
+        
+        assert metric.operation_type == "test_operation"
+        assert metric.timestamp == timestamp
+        assert metric.response_time_ms == 123.45
+        assert metric.success is True
+        assert metric.error_message is None
+        assert metric.metadata == {"key": "value"}
+    
+    def test_response_time_metrics_serialization(self):
+        """ResponseTimeMetricsシリアライゼーションテスト"""
+        timestamp = datetime.now()
+        metric = ResponseTimeMetrics(
+            operation_type="test_operation",
+            timestamp=timestamp,
+            response_time_ms=123.45,
+            success=False,
+            error_message="Test error",
+            metadata={"key": "value"}
+        )
+        
+        # 辞書に変換
+        metric_dict = metric.to_dict()
+        assert metric_dict["operation_type"] == "test_operation"
+        assert metric_dict["timestamp"] == timestamp.isoformat()
+        assert metric_dict["response_time_ms"] == 123.45
+        assert metric_dict["success"] is False
+        assert metric_dict["error_message"] == "Test error"
+        assert metric_dict["metadata"] == {"key": "value"}
+        
+        # 辞書から復元
+        restored_metric = ResponseTimeMetrics.from_dict(metric_dict)
+        assert restored_metric.operation_type == metric.operation_type
+        assert restored_metric.timestamp == metric.timestamp
+        assert restored_metric.response_time_ms == metric.response_time_ms
+        assert restored_metric.success == metric.success
+        assert restored_metric.error_message == metric.error_message
+        assert restored_metric.metadata == metric.metadata
+
+
+class TestPerformanceStats:
+    """PerformanceStatsクラスのテスト"""
+    
+    def test_performance_stats_creation(self):
+        """PerformanceStats作成テスト"""
+        stats = PerformanceStats(
+            operation_type="test_operation",
+            total_requests=100,
+            successful_requests=95,
+            failed_requests=5,
+            avg_response_time_ms=150.5,
+            min_response_time_ms=50.0,
+            max_response_time_ms=500.0,
+            p50_response_time_ms=140.0,
+            p95_response_time_ms=300.0,
+            p99_response_time_ms=450.0,
+            error_rate_percent=5.0,
+            requests_per_minute=10.0
+        )
+        
+        assert stats.operation_type == "test_operation"
+        assert stats.total_requests == 100
+        assert stats.successful_requests == 95
+        assert stats.failed_requests == 5
+        assert stats.avg_response_time_ms == 150.5
+        assert stats.error_rate_percent == 5.0
+        assert stats.requests_per_minute == 10.0
+    
+    def test_performance_stats_serialization(self):
+        """PerformanceStatsシリアライゼーションテスト"""
+        stats = PerformanceStats(
+            operation_type="test_operation",
+            total_requests=100,
+            successful_requests=95,
+            failed_requests=5,
+            avg_response_time_ms=150.5,
+            min_response_time_ms=50.0,
+            max_response_time_ms=500.0,
+            p50_response_time_ms=140.0,
+            p95_response_time_ms=300.0,
+            p99_response_time_ms=450.0,
+            error_rate_percent=5.0,
+            requests_per_minute=10.0
+        )
+        
+        stats_dict = stats.to_dict()
+        assert stats_dict["operation_type"] == "test_operation"
+        assert stats_dict["total_requests"] == 100
+        assert stats_dict["avg_response_time_ms"] == 150.5
+        assert stats_dict["error_rate_percent"] == 5.0

@@ -173,7 +173,8 @@ class GenkaiRAGSystem:
         # LLMマネージャー
         llm_config = self.config.get("llm", {})
         self.llm_manager = LLMManager(
-            ollama_base_url=llm_config.get("base_url", "http://localhost:11434")
+            ollama_base_url=llm_config.get("base_url", "http://localhost:11434"),
+            system_monitor=self.system_monitor
         )
         
         # RAGエンジン
@@ -182,7 +183,8 @@ class GenkaiRAGSystem:
             llm_manager=self.llm_manager,
             document_processor=self.document_processor,
             max_retrieved_docs=rag_config.get("similarity_top_k", 5),
-            max_context_docs=rag_config.get("rerank_top_n", 3)
+            max_context_docs=rag_config.get("rerank_top_n", 3),
+            system_monitor=self.system_monitor
         )
         
         # チャットマネージャー

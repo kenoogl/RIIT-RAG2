@@ -630,7 +630,7 @@ class TestComponentIntegration:
         
         # RAGEngine - シンプルなモック
         rag_engine = Mock()
-        rag_engine.query = AsyncMock(return_value=Mock(
+        rag_engine.query = Mock(return_value=Mock(
             response="テスト回答",
             source_documents=[]
         ))
@@ -659,6 +659,7 @@ class TestComponentIntegration:
         system_status.disk_usage = 30.0
         system_status.cpu_usage = 20.0
         system_monitor.get_system_status = Mock(return_value=system_status)
+        system_monitor.get_performance_stats = Mock(return_value={})
         components["system_monitor"] = system_monitor
         
         # ConfigManager - シンプルなモック
@@ -1109,7 +1110,7 @@ class TestAPIIntegration:
         
         # RAGEngine - シンプルなモック
         rag_engine = Mock()
-        rag_engine.query = AsyncMock(return_value=Mock(
+        rag_engine.query = Mock(return_value=Mock(
             response="テスト回答",
             source_documents=[]
         ))
@@ -1144,6 +1145,7 @@ class TestAPIIntegration:
         system_status.process_count = 150
         system_status.uptime_seconds = 3600
         system_monitor.get_system_status = Mock(return_value=system_status)
+        system_monitor.get_performance_stats = Mock(return_value={})
         components["system_monitor"] = system_monitor
         
         # ConfigManager - シンプルなモック
@@ -1209,8 +1211,8 @@ class TestAPIIntegration:
             confidence_score=0.9
         )
         
-        # 非同期モックを設定
-        async def mock_query(question, **kwargs):
+        # 同期モックを設定
+        def mock_query(question, **kwargs):
             return mock_response
         
         mock_components["rag_engine"].query = mock_query

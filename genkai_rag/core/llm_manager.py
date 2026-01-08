@@ -37,15 +37,17 @@ class LLMManager:
     - モデル情報の取得と管理
     """
     
-    def __init__(self, ollama_base_url: str = "http://localhost:11434"):
+    def __init__(self, ollama_base_url: str = "http://localhost:11434", system_monitor: Optional[Any] = None):
         """
         LLMManagerを初期化
         
         Args:
             ollama_base_url: OllamaサーバーのベースURL
+            system_monitor: システムモニター（レスポンス時間測定用）
         """
         self.ollama_base_url = ollama_base_url.rstrip('/')
         self.config_manager = ConfigManager()
+        self.system_monitor = system_monitor
         self.current_model: Optional[str] = None
         self.model_configs: Dict[str, Dict[str, Any]] = {}
         
@@ -125,6 +127,9 @@ class LLMManager:
         if model_name not in model_names:
             raise ValueError(f"Model '{model_name}' not found. Available models: {model_names}")
         
+        import time
+        start_time = time.time()
+        
         try:
             # モデルをロード（プリロード）
             load_payload = {
@@ -145,10 +150,36 @@ class LLMManager:
             # モデル固有の設定を適用
             self._apply_model_optimization(model_name)
             
-            logger.info(f"Successfully switched from '{old_model}' to '{model_name}'")
+            # レスポンス時間を記録
+            processing_time = time.time() - start_time
+            if self.system_monitor:
+                self.system_monitor.record_response_time(
+                    operation_type="model_switch",
+                    response_time_ms=processing_time * 1000,
+                    success=True,
+                    metadata={
+                        "old_model": old_model,
+                        "new_model": model_name
+                    }
+                )
+            
+            logger.info(f"Successfully switched from '{old_model}' to '{model_name}' in {processing_time:.2f}s")
             return True
             
         except requests.exceptions.RequestException as e:
+            # エラー時のレスポンス時間を記録
+            processing_time = time.time() - start_time
+            if self.system_monitor:
+                self.system_monitor.record_response_time(
+                    operation_type="model_switch",
+                    response_time_ms=processing_time * 1000,
+                    success=False,
+                    error_message=str(e),
+                    metadata={
+                        "target_model": model_name
+                    }
+                )
+            
             logger.error(f"Failed to load model '{model_name}': {e}")
             raise ConnectionError(f"Failed to load model '{model_name}': {e}")
     

@@ -52,7 +52,8 @@ class RAGEngine:
         document_processor: DocumentProcessor,
         similarity_threshold: float = 0.7,
         max_retrieved_docs: int = 10,
-        max_context_docs: int = 5
+        max_context_docs: int = 5,
+        system_monitor: Optional[Any] = None
     ):
         """
         RAGEngineを初期化
@@ -63,12 +64,14 @@ class RAGEngine:
             similarity_threshold: 類似度閾値
             max_retrieved_docs: 最大検索文書数
             max_context_docs: コンテキストに含める最大文書数
+            system_monitor: システムモニター（レスポンス時間測定用）
         """
         self.llm_manager = llm_manager
         self.document_processor = document_processor
         self.similarity_threshold = similarity_threshold
         self.max_retrieved_docs = max_retrieved_docs
         self.max_context_docs = max_context_docs
+        self.system_monitor = system_monitor
         
         # クエリエンジンの初期化
         self.query_engine = None
@@ -158,6 +161,19 @@ class RAGEngine:
             # 処理時間を計算
             processing_time = time.time() - start_time
             
+            # レスポンス時間を記録
+            if self.system_monitor:
+                self.system_monitor.record_response_time(
+                    operation_type="rag_query",
+                    response_time_ms=processing_time * 1000,
+                    success=True,
+                    metadata={
+                        "model_name": model_name or self.llm_manager.get_current_model(),
+                        "sources_count": len(reranked_docs),
+                        "question_length": len(question)
+                    }
+                )
+            
             # 結果を構築
             response = RAGResponse(
                 answer=answer,
@@ -172,6 +188,21 @@ class RAGEngine:
             return response
             
         except Exception as e:
+            processing_time = time.time() - start_time
+            
+            # エラー時のレスポンス時間を記録
+            if self.system_monitor:
+                self.system_monitor.record_response_time(
+                    operation_type="rag_query",
+                    response_time_ms=processing_time * 1000,
+                    success=False,
+                    error_message=str(e),
+                    metadata={
+                        "model_name": model_name or "unknown",
+                        "question_length": len(question)
+                    }
+                )
+            
             logger.error(f"RAG query failed: {e}")
             # フォールバック応答
             return RAGResponse(
