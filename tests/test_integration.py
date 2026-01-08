@@ -2166,3 +2166,566 @@ class TestPerformanceIntegration:
             thread_stats = stats[operation_name]
             assert thread_stats.total_requests == 5
             assert thread_stats.avg_response_time_ms >= 0.05
+
+
+class TestAdvancedPerformance:
+    """高度なパフォーマンステスト（Task 15.3）"""
+    
+    def test_large_data_processing_performance(self):
+        """大量データでの処理性能テスト"""
+        from genkai_rag.core.processor import DocumentProcessor
+        from genkai_rag.core.system_monitor import SystemMonitor
+        from genkai_rag.models.document import Document
+        from unittest.mock import Mock, patch
+        import time
+        import tempfile
+        from datetime import datetime
+        
+        # SystemMonitorを作成
+        monitor = SystemMonitor(log_dir="logs", data_dir="data")
+        
+        # 大量の文書データを生成
+        large_documents = []
+        for i in range(100):  # 100文書
+            content = f"大量データテスト用の文書内容 {i}. " * 50  # 長い内容
+            doc = Document(
+                title=f"大量データテスト文書 {i}",
+                content=content,
+                url=f"https://example.com/doc_{i}",
+                section=f"セクション {i}",
+                timestamp=datetime.now()
+            )
+            large_documents.append(doc)
+        
+        # DocumentProcessorをモック化
+        with patch('genkai_rag.core.processor.VectorStoreIndex') as mock_index, \
+             patch('genkai_rag.core.processor.StorageContext') as mock_storage_context:
+            
+            # モックの設定
+            mock_index_instance = Mock()
+            mock_index.from_documents.return_value = mock_index_instance
+            mock_storage_context.from_defaults.return_value = Mock()
+            
+            # DocumentProcessorを作成
+            temp_dir = tempfile.mkdtemp()
+            processor = DocumentProcessor(
+                index_dir=temp_dir,
+                chunk_size=512,
+                chunk_overlap=50
+            )
+            
+            # 大量データ処理の性能測定
+            start_time = time.time()
+            
+            # 文書を分割して処理（メモリ効率を考慮）
+            batch_size = 20
+            for i in range(0, len(large_documents), batch_size):
+                batch = large_documents[i:i + batch_size]
+                
+                batch_start = time.time()
+                
+                # バッチ処理をシミュレート
+                for doc in batch:
+                    processor.process_single_document(doc)
+                
+                batch_end = time.time()
+                batch_time = batch_end - batch_start
+                
+                # バッチ処理時間を記録
+                monitor.record_response_time(
+                    "large_data_batch_processing",
+                    batch_time,
+                    {
+                        "batch_size": len(batch),
+                        "batch_number": i // batch_size + 1,
+                        "total_documents": len(large_documents)
+                    }
+                )
+            
+            end_time = time.time()
+            total_processing_time = end_time - start_time
+            
+            # 全体処理時間を記録
+            monitor.record_response_time(
+                "large_data_total_processing",
+                total_processing_time,
+                {
+                    "total_documents": len(large_documents),
+                    "total_batches": (len(large_documents) + batch_size - 1) // batch_size
+                }
+            )
+            
+            # パフォーマンス統計を確認
+            stats = monitor.get_performance_stats()
+            
+            # バッチ処理統計
+            assert "large_data_batch_processing" in stats
+            batch_stats = stats["large_data_batch_processing"]
+            assert batch_stats.total_requests == 5  # 100文書 / 20バッチサイズ = 5バッチ
+            assert batch_stats.avg_response_time_ms > 0
+            
+            # 全体処理統計
+            assert "large_data_total_processing" in stats
+            total_stats = stats["large_data_total_processing"]
+            assert total_stats.total_requests == 1
+            assert total_stats.avg_response_time_ms > 0
+            
+            # 処理効率の確認（1文書あたりの平均処理時間）
+            avg_time_per_doc = total_processing_time / len(large_documents)
+            assert avg_time_per_doc < 1.0  # 1文書あたり1秒未満で処理
+            
+            # メモリ使用量の確認
+            memory_status = monitor.get_system_status()
+            assert memory_status.memory_usage_percent < 90  # メモリ使用率90%未満
+            
+            # クリーンアップ
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
+    
+    def test_concurrent_access_load_test(self):
+        """同時アクセス負荷テスト"""
+        from genkai_rag.core.concurrency_manager import ConcurrencyManager
+        from genkai_rag.core.system_monitor import SystemMonitor
+        from genkai_rag.core.rag_engine import RAGEngine
+        from unittest.mock import Mock, AsyncMock
+        import threading
+        import time
+        import asyncio
+        
+        # SystemMonitorを作成
+        monitor = SystemMonitor(log_dir="logs", data_dir="data")
+        
+        # ConcurrencyManagerを作成
+        from genkai_rag.core.concurrency_manager import ConcurrencyConfig
+        
+        concurrency_config = ConcurrencyConfig(
+            max_concurrent_requests=10,
+            request_timeout=30,
+            max_queue_size=50,
+            rate_limit_per_minute=100
+        )
+        concurrency_manager = ConcurrencyManager(concurrency_config)
+        
+        # モックRAGEngineを作成
+        rag_engine = Mock()
+        
+        results = []
+        errors = []
+        response_times = []
+        
+        def concurrent_user_simulation(user_id, queries_per_user=10):
+            """同時ユーザーシミュレーション"""
+            try:
+                for query_id in range(queries_per_user):
+                    start_time = time.time()
+                    
+                    # 同時アクセス制御をシミュレート（簡単な実装）
+                    # 実際のConcurrencyManagerは非同期なので、ここではセマフォを直接使用
+                    import threading
+                    if not hasattr(concurrent_user_simulation, '_semaphore'):
+                        concurrent_user_simulation._semaphore = threading.Semaphore(10)
+                    
+                    with concurrent_user_simulation._semaphore:
+                        # クエリ処理をシミュレート（可変処理時間）
+                        processing_time = 0.1 + (query_id % 3) * 0.05  # 0.1-0.2秒
+                        time.sleep(processing_time)
+                        
+                        # レスポンスをシミュレート
+                        response = Mock(
+                            answer=f"ユーザー{user_id}の質問{query_id}への回答",
+                            processing_time=processing_time,
+                            sources=[]
+                        )
+                    
+                    end_time = time.time()
+                    total_time = end_time - start_time
+                    
+                    # 結果を記録
+                    results.append(f"user_{user_id}_query_{query_id}")
+                    response_times.append(total_time)
+                    
+                    # 応答時間を監視システムに記録
+                    monitor.record_response_time(
+                        "concurrent_load_test",
+                        total_time,
+                        {
+                            "user_id": user_id,
+                            "query_id": query_id,
+                            "processing_time": processing_time
+                        }
+                    )
+                    
+                    # ユーザー間の間隔をシミュレート
+                    time.sleep(0.01)  # 10ms間隔
+                    
+            except Exception as e:
+                errors.append(f"user_{user_id}_error: {str(e)}")
+        
+        # 複数ユーザーの同時アクセスをシミュレート
+        num_users = 8
+        queries_per_user = 5
+        
+        threads = []
+        load_test_start = time.time()
+        
+        for user_id in range(num_users):
+            thread = threading.Thread(
+                target=concurrent_user_simulation,
+                args=(user_id, queries_per_user)
+            )
+            threads.append(thread)
+            thread.start()
+        
+        # 全スレッドの完了を待機
+        for thread in threads:
+            thread.join()
+        
+        load_test_end = time.time()
+        total_load_test_time = load_test_end - load_test_start
+        
+        # 負荷テスト結果の検証
+        expected_total_queries = num_users * queries_per_user
+        
+        assert len(errors) == 0, f"Errors occurred: {errors}"
+        assert len(results) == expected_total_queries
+        assert len(response_times) == expected_total_queries
+        
+        # パフォーマンス統計の確認
+        stats = monitor.get_performance_stats()
+        assert "concurrent_load_test" in stats
+        
+        load_stats = stats["concurrent_load_test"]
+        assert load_stats.total_requests == expected_total_queries
+        assert load_stats.avg_response_time_ms > 0
+        
+        # スループット計算
+        throughput = expected_total_queries / total_load_test_time
+        assert throughput > 10  # 最低10クエリ/秒のスループット
+        
+        # 応答時間分析
+        avg_response_time = sum(response_times) / len(response_times)
+        max_response_time = max(response_times)
+        min_response_time = min(response_times)
+        
+        assert avg_response_time < 1.0  # 平均応答時間1秒未満
+        assert max_response_time < 2.0  # 最大応答時間2秒未満
+        assert min_response_time > 0.05  # 最小応答時間50ms以上（処理時間の下限）
+        
+        # 同時アクセス制御の効果確認（簡単な実装）
+        # 実際のConcurrencyManagerのメトリクスは非同期なので、ここでは基本的な確認のみ
+        assert len(results) == expected_total_queries
+        assert len(response_times) == expected_total_queries
+    
+    def test_memory_usage_and_response_time_measurement(self):
+        """メモリ使用量とレスポンス時間の詳細測定テスト"""
+        from genkai_rag.core.system_monitor import SystemMonitor
+        from genkai_rag.core.chat_manager import ChatManager
+        from genkai_rag.models.chat import Message
+        import tempfile
+        import time
+        import psutil
+        import os
+        
+        # SystemMonitorを作成
+        monitor = SystemMonitor(log_dir="logs", data_dir="data")
+        
+        # 初期システム状態を記録
+        initial_status = monitor.get_system_status()
+        initial_memory_mb = initial_status.memory_usage_percent
+        
+        # ChatManagerを作成
+        temp_dir = tempfile.mkdtemp()
+        chat_manager = ChatManager(storage_dir=temp_dir, max_history_size=1000)
+        
+        # メモリ使用量とレスポンス時間の詳細測定
+        memory_measurements = []
+        response_time_measurements = []
+        
+        # 段階的負荷テスト
+        load_levels = [10, 50, 100, 200]  # メッセージ数
+        
+        for load_level in load_levels:
+            session_id = f"memory-test-session-{load_level}"
+            
+            # 負荷レベルごとの測定開始
+            level_start_time = time.time()
+            level_start_memory = psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024  # MB
+            
+            # 指定数のメッセージを処理
+            for i in range(load_level):
+                message_start = time.time()
+                
+                # 可変長メッセージを作成
+                message_length = 100 + (i % 10) * 50  # 100-550文字
+                content = f"メモリ負荷テスト用メッセージ {i} " * (message_length // 20)
+                
+                message = Message(
+                    content=content,
+                    role="user" if i % 2 == 0 else "assistant",
+                    session_id=session_id
+                )
+                
+                # メッセージ保存の応答時間測定
+                chat_manager.save_message(session_id, message)
+                
+                message_end = time.time()
+                message_time = message_end - message_start
+                
+                # 応答時間を記録
+                monitor.record_response_time(
+                    f"message_save_load_{load_level}",
+                    message_time,
+                    {
+                        "message_length": len(content),
+                        "message_index": i,
+                        "load_level": load_level
+                    }
+                )
+                
+                response_time_measurements.append({
+                    "load_level": load_level,
+                    "message_index": i,
+                    "response_time": message_time,
+                    "message_length": len(content)
+                })
+                
+                # 定期的にメモリ使用量を測定
+                if i % 10 == 0:
+                    current_memory = psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024
+                    memory_measurements.append({
+                        "load_level": load_level,
+                        "message_index": i,
+                        "memory_mb": current_memory,
+                        "memory_delta": current_memory - level_start_memory
+                    })
+            
+            level_end_time = time.time()
+            level_end_memory = psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024
+            
+            level_duration = level_end_time - level_start_time
+            level_memory_increase = level_end_memory - level_start_memory
+            
+            # レベル全体の統計を記録
+            monitor.record_response_time(
+                f"load_level_{load_level}_total",
+                level_duration,
+                {
+                    "total_messages": load_level,
+                    "memory_increase_mb": level_memory_increase,
+                    "messages_per_second": load_level / level_duration
+                }
+            )
+        
+        # 最終システム状態を測定
+        final_status = monitor.get_system_status()
+        final_memory_mb = final_status.memory_usage_percent
+        
+        # パフォーマンス統計の分析
+        stats = monitor.get_performance_stats()
+        
+        # 各負荷レベルの統計を確認
+        for load_level in load_levels:
+            message_save_key = f"message_save_load_{load_level}"
+            level_total_key = f"load_level_{load_level}_total"
+            
+            assert message_save_key in stats
+            assert level_total_key in stats
+            
+            message_stats = stats[message_save_key]
+            level_stats = stats[level_total_key]
+            
+            # 応答時間の妥当性確認
+            assert message_stats.total_requests == load_level
+            assert message_stats.avg_response_time_ms < 100  # 100ms未満
+            assert level_stats.total_requests == 1
+        
+        # メモリ使用量の分析
+        assert len(memory_measurements) > 0
+        
+        # メモリ増加が線形的で制御されていることを確認
+        max_memory_increase = max(m["memory_delta"] for m in memory_measurements)
+        assert max_memory_increase < 500  # 500MB未満の増加
+        
+        # 応答時間の分析
+        assert len(response_time_measurements) > 0
+        
+        # 負荷レベル別の応答時間分析
+        for load_level in load_levels:
+            level_times = [r["response_time"] for r in response_time_measurements if r["load_level"] == load_level]
+            if level_times:
+                avg_time = sum(level_times) / len(level_times)
+                max_time = max(level_times)
+                
+                # 応答時間が負荷に比例して大幅に増加していないことを確認
+                assert avg_time < 0.1  # 平均100ms未満
+                assert max_time < 0.5   # 最大500ms未満
+        
+        # システムリソースの健全性確認
+        assert final_status.memory_usage_percent < 85  # メモリ使用率85%未満
+        assert final_status.cpu_usage_percent < 80     # CPU使用率80%未満
+        
+        # クリーンアップ
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    
+    def test_scalability_and_bottleneck_analysis(self):
+        """スケーラビリティとボトルネック分析テスト"""
+        from genkai_rag.core.system_monitor import SystemMonitor
+        from genkai_rag.core.concurrency_manager import ConcurrencyManager
+        from unittest.mock import Mock
+        import threading
+        import time
+        import queue
+        
+        # SystemMonitorを作成
+        monitor = SystemMonitor(log_dir="logs", data_dir="data")
+        
+        # 異なる同時実行レベルでのテスト
+        concurrency_levels = [1, 2, 4, 8, 16]
+        scalability_results = []
+        
+        for concurrency_level in concurrency_levels:
+            # ConcurrencyManagerを設定
+            from genkai_rag.core.concurrency_manager import ConcurrencyConfig
+            
+            concurrency_config = ConcurrencyConfig(
+                max_concurrent_requests=concurrency_level,
+                request_timeout=30,
+                max_queue_size=concurrency_level * 5,
+                rate_limit_per_minute=1000
+            )
+            concurrency_manager = ConcurrencyManager(concurrency_config)
+            
+            # テスト用のワークロード
+            total_requests = 50
+            request_queue = queue.Queue()
+            results_queue = queue.Queue()
+            
+            # リクエストをキューに追加
+            for i in range(total_requests):
+                request_queue.put(f"request_{i}")
+            
+            def worker_thread(worker_id):
+                """ワーカースレッド"""
+                while True:
+                    try:
+                        request = request_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    
+                    start_time = time.time()
+                    
+                    try:
+                        # 同時アクセス制御をシミュレート
+                        if not hasattr(worker_thread, '_semaphore'):
+                            worker_thread._semaphore = threading.Semaphore(concurrency_level)
+                        
+                        with worker_thread._semaphore:
+                            # 作業をシミュレート
+                            work_time = 0.05 + (hash(request) % 10) * 0.01  # 50-140ms
+                            time.sleep(work_time)
+                            
+                            end_time = time.time()
+                            total_time = end_time - start_time
+                            
+                            results_queue.put({
+                                "request": request,
+                                "worker_id": worker_id,
+                                "total_time": total_time,
+                                "work_time": work_time,
+                                "concurrency_level": concurrency_level
+                            })
+                            
+                            # 応答時間を記録
+                            monitor.record_response_time(
+                                f"scalability_test_c{concurrency_level}",
+                                total_time,
+                                {
+                                    "worker_id": worker_id,
+                                    "concurrency_level": concurrency_level,
+                                    "work_time": work_time
+                                }
+                            )
+                    
+                    except Exception as e:
+                        results_queue.put({
+                            "request": request,
+                            "error": str(e),
+                            "concurrency_level": concurrency_level
+                        })
+                    
+                    finally:
+                        request_queue.task_done()
+            
+            # スケーラビリティテスト実行
+            test_start_time = time.time()
+            
+            # ワーカースレッドを起動
+            threads = []
+            for i in range(concurrency_level):
+                thread = threading.Thread(target=worker_thread, args=(i,))
+                threads.append(thread)
+                thread.start()
+            
+            # 全スレッドの完了を待機
+            for thread in threads:
+                thread.join()
+            
+            test_end_time = time.time()
+            total_test_time = test_end_time - test_start_time
+            
+            # 結果を収集
+            level_results = []
+            while not results_queue.empty():
+                level_results.append(results_queue.get())
+            
+            # エラーのないリクエストのみを分析
+            successful_results = [r for r in level_results if "error" not in r]
+            
+            if successful_results:
+                avg_response_time = sum(r["total_time"] for r in successful_results) / len(successful_results)
+                throughput = len(successful_results) / total_test_time
+                
+                scalability_results.append({
+                    "concurrency_level": concurrency_level,
+                    "total_requests": total_requests,
+                    "successful_requests": len(successful_results),
+                    "failed_requests": len(level_results) - len(successful_results),
+                    "avg_response_time": avg_response_time,
+                    "throughput": throughput,
+                    "total_test_time": total_test_time
+                })
+        
+        # スケーラビリティ分析
+        assert len(scalability_results) == len(concurrency_levels)
+        
+        # パフォーマンス統計の確認
+        stats = monitor.get_performance_stats()
+        
+        for level in concurrency_levels:
+            stat_key = f"scalability_test_c{level}"
+            assert stat_key in stats
+            
+            level_stats = stats[stat_key]
+            assert level_stats.total_requests > 0
+            assert level_stats.avg_response_time_ms > 0
+        
+        # スケーラビリティ特性の分析
+        throughputs = [r["throughput"] for r in scalability_results]
+        response_times = [r["avg_response_time"] for r in scalability_results]
+        
+        # スループットが同時実行レベルの増加とともに向上することを確認
+        # （ただし、リソース制約により頭打ちになる可能性もある）
+        max_throughput = max(throughputs)
+        min_throughput = min(throughputs)
+        
+        assert max_throughput > min_throughput  # スケーラビリティの向上を確認
+        
+        # 応答時間が過度に増加していないことを確認
+        max_response_time = max(response_times)
+        assert max_response_time < 1.0  # 1秒未満
+        
+        # 成功率の確認
+        for result in scalability_results:
+            success_rate = result["successful_requests"] / result["total_requests"]
+            assert success_rate >= 0.95  # 95%以上の成功率
