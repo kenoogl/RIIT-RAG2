@@ -21,9 +21,12 @@ class MockRAGEngine:
     """RAGエンジンのモッククラス"""
     
     async def query(self, question, model_name=None, max_sources=5, context_messages=None):
-        return {
-            "answer": "テスト回答",
-            "sources": [
+        from genkai_rag.core.rag_engine import RAGResponse
+        from genkai_rag.models.document import DocumentSource
+        
+        return RAGResponse(
+            answer="テスト回答",
+            sources=[
                 DocumentSource(
                     url="https://example.com/doc1",
                     title="テスト文書1",
@@ -31,9 +34,11 @@ class MockRAGEngine:
                     relevance_score=0.95
                 )
             ],
-            "model_used": "test-model",
-            "metadata": {"confidence": 0.95}
-        }
+            processing_time=0.1,
+            model_used="test-model",
+            retrieval_score=0.9,
+            confidence_score=0.95
+        )
 
 
 class MockLLMManager:

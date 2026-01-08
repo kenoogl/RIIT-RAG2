@@ -20,19 +20,24 @@ class MockRAGEngine:
     """RAGエンジンのモッククラス"""
     
     async def query(self, question, model_name=None, max_sources=5, context_messages=None):
-        return {
-            "answer": "テスト回答です。玄界システムは高性能なスーパーコンピュータです。",
-            "sources": [
-                {
-                    "url": "https://example.com/genkai-info",
-                    "title": "玄界システム概要",
-                    "content_type": "text/html",
-                    "last_accessed": "2024-01-01T00:00:00"
-                }
+        from genkai_rag.core.rag_engine import RAGResponse
+        from genkai_rag.models.document import DocumentSource
+        
+        return RAGResponse(
+            answer="テスト回答です。玄界システムは高性能なスーパーコンピュータです。",
+            sources=[
+                DocumentSource(
+                    url="https://example.com/genkai-info",
+                    title="玄界システム概要",
+                    section="概要",
+                    relevance_score=0.95
+                )
             ],
-            "model_used": "test-model",
-            "metadata": {"confidence": 0.95}
-        }
+            processing_time=0.1,
+            model_used="test-model",
+            retrieval_score=0.9,
+            confidence_score=0.95
+        )
 
 
 class MockLLMManager:
