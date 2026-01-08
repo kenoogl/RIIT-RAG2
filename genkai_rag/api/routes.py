@@ -457,8 +457,8 @@ async def get_system_status(
             status="healthy",  # TODO: 実際のヘルスチェックロジックを実装
             version="1.0.0",
             uptime_seconds=status.uptime_seconds,
-            memory_usage_mb=status.memory_usage_mb,
-            disk_usage_mb=status.disk_usage_mb,
+            memory_usage_mb=status.memory_total_gb * 1024 * (status.memory_usage_percent / 100),
+            disk_usage_mb=status.disk_total_gb * 1024 * (status.disk_usage_percent / 100),
             active_sessions=active_sessions,
             total_queries=concurrency_metrics.get("total_requests", 0),
             current_model=current_model,
@@ -572,13 +572,13 @@ async def health_check_detailed(
         disk_usage_percent = 0
         
         try:
-            if hasattr(system_status, 'memory_usage_mb') and hasattr(system_status, 'total_memory_mb'):
-                if system_status.total_memory_mb and system_status.total_memory_mb > 0:
-                    memory_usage_percent = (system_status.memory_usage_mb / system_status.total_memory_mb) * 100
+            if hasattr(system_status, 'memory_usage_percent') and hasattr(system_status, 'memory_total_gb'):
+                if system_status.memory_total_gb and system_status.memory_total_gb > 0:
+                    memory_usage_percent = system_status.memory_usage_percent
             
-            if hasattr(system_status, 'disk_usage_mb') and hasattr(system_status, 'total_disk_mb'):
-                if system_status.total_disk_mb and system_status.total_disk_mb > 0:
-                    disk_usage_percent = (system_status.disk_usage_mb / system_status.total_disk_mb) * 100
+            if hasattr(system_status, 'disk_usage_percent') and hasattr(system_status, 'disk_total_gb'):
+                if system_status.disk_total_gb and system_status.disk_total_gb > 0:
+                    disk_usage_percent = system_status.disk_usage_percent
         except (TypeError, AttributeError):
             # モック環境での計算エラーを回避
             memory_usage_percent = 0

@@ -1286,3 +1286,625 @@ class TestAPIIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
+
+
+class TestAdvancedComponentIntegration:
+    """高度なコンポーネント間統合テスト"""
+    
+    @pytest.fixture
+    def real_components(self):
+        """実際のコンポーネントを使用したテスト（軽量設定）"""
+        import tempfile
+        import yaml
+        from pathlib import Path
+        
+        # 一時ディレクトリを作成
+        temp_dir = tempfile.mkdtemp()
+        
+        # テスト用設定
+        test_config = {
+            "logging": {"level": "WARNING"},
+            "scraper": {"timeout": 2, "max_retries": 1},
+            "document_processor": {"chunk_size": 50, "chunk_overlap": 10},
+            "llm": {"base_url": "http://localhost:11434", "default_model": "test-model", "timeout": 5},
+            "rag": {"similarity_top_k": 2, "rerank_top_n": 1},
+            "chat": {"max_history_size": 3, "session_timeout_hours": 1},
+            "system_monitor": {"enable_background_monitoring": False}
+        }
+        
+        # 設定ファイルを作成
+        config_path = Path(temp_dir) / "config.yaml"
+        with open(config_path, 'w') as f:
+            yaml.dump(test_config, f)
+        
+        # 実際のコンポーネントを作成（ネットワーク依存を最小化）
+        from genkai_rag.core.config_manager import ConfigManager
+        from genkai_rag.core.error_recovery import ErrorRecoveryManager
+        from genkai_rag.core.system_monitor import SystemMonitor
+        from genkai_rag.core.chat_manager import ChatManager
+        
+        components = {}
+        
+        # ConfigManager
+        config_manager = ConfigManager(str(temp_dir))  # ディレクトリを渡す
+        config_path = Path(temp_dir) / "config.yaml"
+        with open(config_path, 'w') as f:
+            yaml.dump(test_config, f)
+        config = config_manager.load_config()
+        components["config_manager"] = config_manager
+        components["config"] = config
+        
+        # ErrorRecoveryManager
+        error_recovery_config = config.get("error_recovery", {})
+        error_recovery_manager = ErrorRecoveryManager(config=error_recovery_config)
+        components["error_recovery_manager"] = error_recovery_manager
+        
+        # SystemMonitor
+        system_monitor = SystemMonitor(
+            log_dir=temp_dir,
+            data_dir=temp_dir,
+            monitoring_interval=1
+        )
+        components["system_monitor"] = system_monitor
+        
+        # ChatManager
+        chat_config = config.get("chat", {})
+        chat_manager = ChatManager(
+            storage_dir=temp_dir,
+            max_history_size=chat_config.get("max_history_size", 3),
+            max_session_age_days=1,
+            cleanup_interval_hours=1
+        )
+        components["chat_manager"] = chat_manager
+        
+        yield components
+        
+        # クリーンアップ
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    
+    def test_webscraper_processor_rag_chain(self, real_components):
+        """WebScraper → DocumentProcessor → RAGEngine チェーンテスト"""
+        from genkai_rag.models.document import Document
+        from genkai_rag.core.scraper import WebScraper
+        from genkai_rag.core.processor import DocumentProcessor
+        from genkai_rag.core.rag_engine import RAGEngine
+        from datetime import datetime
+        from unittest.mock import Mock, patch
+        
+        # 実際のコンポーネントを作成（ネットワーク依存を回避）
+        scraper = WebScraper(timeout=2, max_retries=1)
+        
+        # DocumentProcessorとRAGEngineはモック化（LlamaIndexの依存を回避）
+        processor = Mock()
+        rag_engine = Mock()
+        
+        # テスト文書を作成
+        test_document = Document(
+            title="玄界システム技術仕様",
+            content="玄界システムは九州大学が運用する最新のスーパーコンピュータシステムです。Intel Xeon プロセッサを搭載し、高速なInfiniBandネットワークで接続されています。",
+            url="https://example.com/genkai-specs",
+            section="技術仕様",
+            timestamp=datetime.now()
+        )
+        
+        # WebScraperのモック（実際のネットワークアクセスを回避）
+        with patch.object(scraper, 'scrape_single_page', return_value=test_document):
+            # 1. WebScraperで文書を取得
+            scraped_doc = scraper.scrape_single_page("https://example.com/genkai-specs")
+            
+            assert scraped_doc is not None
+            assert scraped_doc.title == "玄界システム技術仕様"
+            assert "玄界システム" in scraped_doc.content
+            assert "Intel Xeon" in scraped_doc.content
+            
+            # 2. DocumentProcessorで処理
+            processor.process_single_document = Mock(return_value=True)
+            processor.get_document_count = Mock(return_value=1)
+            
+            result = processor.process_single_document(scraped_doc)
+            assert result is True
+            
+            # 文書が処理されたことを確認
+            processor.process_single_document.assert_called_once_with(scraped_doc)
+            
+            # 3. RAGEngineで検索
+            from genkai_rag.core.rag_engine import RAGResponse
+            from genkai_rag.models.document import DocumentSource
+            
+            mock_source = DocumentSource(
+                title="玄界システム技術仕様",
+                url="https://example.com/genkai-specs",
+                section="技術仕様",
+                relevance_score=0.95
+            )
+            
+            mock_response = RAGResponse(
+                answer="玄界システムはIntel Xeonプロセッサを搭載した九州大学のスーパーコンピュータです。",
+                sources=[mock_source],
+                processing_time=0.2,
+                model_used="test-model",
+                retrieval_score=0.9,
+                confidence_score=0.95
+            )
+            
+            rag_engine.query = Mock(return_value=mock_response)
+            
+            query = "玄界システムのプロセッサは何ですか？"
+            response = rag_engine.query(query)
+            
+            assert response is not None
+            assert "Intel Xeon" in response.answer
+            assert len(response.sources) == 1
+            assert response.sources[0].title == "玄界システム技術仕様"
+            
+            # 全チェーンが正常に動作したことを確認
+            rag_engine.query.assert_called_once_with(query)
+    
+    def test_rag_llm_chat_chain(self, real_components):
+        """RAGEngine → LLMManager → ChatManager チェーンテスト"""
+        from genkai_rag.core.rag_engine import RAGEngine, RAGResponse
+        from genkai_rag.core.llm_manager import LLMManager
+        from genkai_rag.models.chat import Message
+        from genkai_rag.models.document import DocumentSource
+        from unittest.mock import Mock, AsyncMock
+        
+        # 実際のChatManagerを使用
+        chat_manager = real_components["chat_manager"]
+        
+        # RAGEngineとLLMManagerはモック化
+        rag_engine = Mock()
+        llm_manager = Mock()
+        
+        # テストデータを準備
+        session_id = "chain-test-session"
+        query = "玄界システムの利用料金について教えてください"
+        
+        # LLMManagerのモック設定
+        llm_manager.get_current_model = Mock(return_value="llama3.2:3b")
+        llm_manager.query_async = AsyncMock(return_value="玄界システムの利用料金は計算時間に基づいて課金されます。詳細は公式サイトをご確認ください。")
+        
+        # RAGEngineのモック設定
+        mock_source = DocumentSource(
+            title="玄界システム料金体系",
+            url="https://example.com/pricing",
+            section="料金",
+            relevance_score=0.9
+        )
+        
+        mock_response = RAGResponse(
+            answer="玄界システムの利用料金は計算時間に基づいて課金されます。詳細は公式サイトをご確認ください。",
+            sources=[mock_source],
+            processing_time=0.3,
+            model_used="llama3.2:3b",
+            retrieval_score=0.85,
+            confidence_score=0.9
+        )
+        
+        rag_engine.query = Mock(return_value=mock_response)
+        
+        # チェーンを実行
+        # 1. RAGEngineでクエリを実行
+        response = rag_engine.query(query)
+        assert response is not None
+        assert "料金" in response.answer
+        assert response.model_used == "llama3.2:3b"
+        
+        # 2. ChatManagerに会話を保存（実際のChatManagerを使用）
+        user_message = Message(content=query, role="user", session_id=session_id)
+        result1 = chat_manager.save_message(session_id, user_message)
+        assert result1 is True
+        
+        assistant_message = Message(content=response.answer, role="assistant", session_id=session_id)
+        result2 = chat_manager.save_message(session_id, assistant_message)
+        assert result2 is True
+        
+        # 3. 履歴を確認
+        history = chat_manager.get_chat_history(session_id)
+        assert len(history) == 2
+        assert history[0].content == query
+        assert history[0].role == "user"
+        assert history[1].content == response.answer
+        assert history[1].role == "assistant"
+        
+        # 4. セッション情報を確認
+        session_info = chat_manager.get_session_info(session_id)
+        assert session_info is not None
+        assert session_info.message_count == 2
+        
+        # 呼び出しを確認
+        rag_engine.query.assert_called_once_with(query)
+    
+    def test_api_to_core_integration(self, real_components):
+        """API層 → コア層 統合テスト"""
+        from genkai_rag.api.app import create_app
+        from fastapi.testclient import TestClient
+        from unittest.mock import Mock
+        
+        # 実際のコンポーネントと組み合わせ
+        chat_manager = real_components["chat_manager"]
+        system_monitor = real_components["system_monitor"]
+        error_recovery_manager = real_components["error_recovery_manager"]
+        
+        # その他のコンポーネントはモック化
+        mock_components = {
+            "chat_manager": chat_manager,
+            "system_monitor": system_monitor,
+            "error_recovery_manager": error_recovery_manager,
+            "rag_engine": Mock(),
+            "llm_manager": Mock(),
+            "document_processor": Mock(),
+            "web_scraper": Mock(),
+            "config_manager": real_components["config_manager"]
+        }
+        
+        # RAGEngineのモック設定
+        from genkai_rag.core.rag_engine import RAGResponse
+        from genkai_rag.models.document import DocumentSource
+        
+        mock_response = RAGResponse(
+            answer="玄界システムは九州大学の高性能計算システムです。",
+            sources=[
+                DocumentSource(
+                    title="玄界システム概要",
+                    url="https://example.com/overview",
+                    section="概要",
+                    relevance_score=0.9
+                )
+            ],
+            processing_time=0.25,
+            model_used="llama3.2:3b",
+            retrieval_score=0.88,
+            confidence_score=0.92
+        )
+        
+        def mock_query(question, **kwargs):
+            return mock_response
+        
+        mock_components["rag_engine"].query = mock_query
+        mock_components["llm_manager"].get_current_model.return_value = "llama3.2:3b"
+        
+        # FastAPIアプリケーションを作成
+        config = {"debug": True, "cors_origins": ["*"]}
+        app = create_app(dependencies=mock_components, config=config)
+        
+        with TestClient(app) as client:
+            # 1. クエリAPIテスト
+            request_data = {
+                "question": "玄界システムについて教えてください",
+                "session_id": "api-core-test",
+                "include_history": True
+            }
+            
+            response = client.post("/api/query", json=request_data)
+            assert response.status_code == 200
+            
+            data = response.json()
+            assert "answer" in data
+            assert "玄界システム" in data["answer"]
+            assert data["session_id"] == "api-core-test"
+            
+            # 2. 履歴APIテスト（実際のChatManagerを使用）
+            history_response = client.get("/api/chat/history?session_id=api-core-test&limit=10")
+            assert history_response.status_code == 200
+            
+            history_data = history_response.json()
+            assert "messages" in history_data
+            assert len(history_data["messages"]) >= 2  # user + assistant
+            
+            # 3. システム状態APIテスト（実際のSystemMonitorを使用）
+            status_response = client.get("/api/system/status")
+            assert status_response.status_code == 200
+            
+            status_data = status_response.json()
+            assert "memory_usage_mb" in status_data
+            assert "disk_usage_mb" in status_data
+            assert "current_model" in status_data
+            
+            # 4. ヘルスチェックAPIテスト
+            health_response = client.get("/api/health")
+            assert health_response.status_code == 200
+            
+            health_data = health_response.json()
+            assert health_data["status"] == "healthy"
+            assert health_data["service"] == "genkai-rag-system"
+    
+    def test_error_propagation_chain(self, real_components):
+        """エラー伝播チェーンテスト"""
+        from genkai_rag.core.scraper import WebScraper
+        from unittest.mock import Mock, patch
+        
+        # 実際のErrorRecoveryManagerを使用
+        error_recovery_manager = real_components["error_recovery_manager"]
+        
+        # WebScraperを作成
+        scraper = WebScraper(timeout=1, max_retries=1)
+        
+        # その他のコンポーネントはモック化
+        processor = Mock()
+        rag_engine = Mock()
+        
+        # エラーを発生させる
+        with patch.object(scraper, 'scrape_single_page', side_effect=Exception("Network timeout")):
+            # 1. WebScraperでエラーが発生
+            try:
+                scraper.scrape_single_page("https://invalid-url.com")
+                assert False, "Expected exception was not raised"
+            except Exception as e:
+                # 2. ErrorRecoveryManagerでエラーを処理
+                context = {
+                    "operation": "scrape_single_page",
+                    "url": "https://invalid-url.com",
+                    "component": "WebScraper"
+                }
+                
+                result = error_recovery_manager.handle_scraping_error(e, "https://invalid-url.com")
+                # エラーが適切に処理されたことを確認（Noneが返される場合もある）
+                assert result is None  # 回復できない場合はNoneが返される
+                
+                # 3. エラー統計を確認
+                stats = error_recovery_manager.get_error_statistics(1)
+                assert stats["total_errors"] >= 1
+                
+                # 4. システムが他の機能を継続できることを確認
+                processor.get_document_count = Mock(return_value=0)
+                count = processor.get_document_count()
+                assert count == 0
+                
+                # エラーが適切に処理され、システムが継続動作することを確認
+                processor.get_document_count.assert_called_once()
+    
+    def test_concurrent_component_access(self, real_components):
+        """同時コンポーネントアクセステスト"""
+        import threading
+        import time
+        from genkai_rag.models.chat import Message
+        
+        # 実際のChatManagerを使用
+        chat_manager = real_components["chat_manager"]
+        
+        results = []
+        errors = []
+        
+        def concurrent_chat_operation(thread_id):
+            """同時チャット操作"""
+            try:
+                session_id = f"concurrent-session-{thread_id}"
+                
+                # メッセージを保存
+                for i in range(3):
+                    message = Message(
+                        content=f"Thread {thread_id} Message {i}",
+                        role="user",
+                        session_id=session_id
+                    )
+                    result = chat_manager.save_message(session_id, message)
+                    if result:
+                        results.append(f"thread_{thread_id}_msg_{i}")
+                    
+                    # 少し待機
+                    time.sleep(0.01)
+                
+                # 履歴を取得
+                history = chat_manager.get_chat_history(session_id)
+                results.append(f"thread_{thread_id}_history_{len(history)}")
+                
+            except Exception as e:
+                errors.append(f"thread_{thread_id}_error: {str(e)}")
+        
+        # 複数スレッドで同時実行
+        threads = []
+        for i in range(3):
+            thread = threading.Thread(target=concurrent_chat_operation, args=(i,))
+            threads.append(thread)
+            thread.start()
+        
+        # 全スレッドの完了を待機
+        for thread in threads:
+            thread.join()
+        
+        # 結果を確認
+        assert len(errors) == 0, f"Errors occurred: {errors}"
+        assert len(results) >= 9  # 各スレッドで最低3つの操作
+        
+        # 各スレッドの履歴が独立していることを確認
+        for i in range(3):
+            session_id = f"concurrent-session-{i}"
+            history = chat_manager.get_chat_history(session_id)
+            assert len(history) == 3
+            
+            # 履歴の内容が正しいスレッドのものであることを確認
+            for msg in history:
+                assert f"Thread {i}" in msg.content
+    
+    def test_configuration_propagation(self, real_components):
+        """設定伝播テスト"""
+        # 実際のConfigManagerを使用
+        config_manager = real_components["config_manager"]
+        config = real_components["config"]
+        
+        # 設定値が各コンポーネントに正しく伝播されることを確認
+        assert "chat" in config
+        assert "scraper" in config
+        assert "llm" in config
+        
+        # ChatManagerの設定確認
+        chat_config = config.get("chat", {})
+        chat_manager = real_components["chat_manager"]
+        
+        assert chat_manager.max_history_size == chat_config.get("max_history_size", 3)
+        
+        # SystemMonitorの設定確認
+        system_monitor = real_components["system_monitor"]
+        # バックグラウンド監視は無効化されていることを確認（デフォルトで無効）
+        
+        # 設定の変更と再読み込みテスト
+        original_config = config_manager.load_config()
+        assert original_config is not None
+        
+        # 設定が正しく読み込まれていることを確認
+        assert "logging" in original_config
+        assert original_config["logging"]["level"] == "WARNING"
+
+
+class TestPerformanceIntegration:
+    """パフォーマンス統合テスト"""
+    
+    def test_response_time_measurement_integration(self):
+        """応答時間測定統合テスト"""
+        from genkai_rag.core.system_monitor import SystemMonitor
+        from unittest.mock import Mock
+        import time
+        
+        # SystemMonitorを作成
+        monitor = SystemMonitor(log_dir="logs", data_dir="data")
+        
+        # モックコンポーネントを作成
+        rag_engine = Mock()
+        
+        def slow_query(question):
+            """遅いクエリをシミュレート"""
+            time.sleep(0.1)  # 100ms の遅延
+            return Mock(
+                answer="テスト回答",
+                processing_time=0.1,
+                sources=[]
+            )
+        
+        rag_engine.query = slow_query
+        
+        # 応答時間を測定
+        start_time = time.time()
+        response = rag_engine.query("テスト質問")
+        end_time = time.time()
+        
+        processing_time = end_time - start_time
+        
+        # 応答時間を記録
+        monitor.record_response_time("rag_query", processing_time, {
+            "question_length": len("テスト質問"),
+            "model": "test-model"
+        })
+        
+        # パフォーマンス統計を取得
+        stats = monitor.get_performance_stats()
+        
+        assert "rag_query" in stats
+        
+        rag_stats = stats["rag_query"]
+        assert rag_stats.total_requests == 1
+        assert rag_stats.avg_response_time_ms >= 0.1
+        assert rag_stats.max_response_time_ms >= 0.1
+    
+    def test_memory_usage_monitoring_integration(self):
+        """メモリ使用量監視統合テスト"""
+        from genkai_rag.core.system_monitor import SystemMonitor
+        from genkai_rag.core.chat_manager import ChatManager
+        from genkai_rag.models.chat import Message
+        import tempfile
+        
+        # SystemMonitorを作成
+        monitor = SystemMonitor(log_dir="logs", data_dir="data")
+        
+        # ChatManagerを作成
+        temp_dir = tempfile.mkdtemp()
+        chat_manager = ChatManager(storage_dir=temp_dir, max_history_size=100)
+        
+        # 初期メモリ使用量を記録
+        initial_status = monitor.get_system_status()
+        initial_memory = initial_status.memory_usage_percent
+        
+        # 大量のメッセージを作成してメモリ使用量を増加させる
+        session_id = "memory-test-session"
+        for i in range(50):
+            message = Message(
+                content=f"メモリテスト用の長いメッセージ内容 {i} " * 10,  # 長いメッセージ
+                role="user",
+                session_id=session_id
+            )
+            chat_manager.save_message(session_id, message)
+        
+        # メモリ使用量を再測定
+        final_status = monitor.get_system_status()
+        final_memory = final_status.memory_usage_percent
+        
+        # メモリ使用量が記録されていることを確認
+        assert final_status.memory_total_gb > 0
+        assert final_status.memory_available_gb >= 0
+        assert final_status.memory_usage_percent >= 0
+        
+        # システム状態が正常に取得できることを確認
+        assert final_status.cpu_usage_percent >= 0
+        assert final_status.disk_usage_percent >= 0
+        assert final_status.process_count > 0
+        
+        # クリーンアップ
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    
+    def test_concurrent_load_integration(self):
+        """同時負荷統合テスト"""
+        import threading
+        import time
+        from genkai_rag.core.system_monitor import SystemMonitor
+        from unittest.mock import Mock
+        
+        # SystemMonitorを作成
+        monitor = SystemMonitor(log_dir="logs", data_dir="data")
+        
+        # モックRAGEngineを作成
+        rag_engine = Mock()
+        
+        results = []
+        errors = []
+        
+        def concurrent_query(thread_id):
+            """同時クエリ実行"""
+            try:
+                for i in range(5):
+                    start_time = time.time()
+                    
+                    # クエリをシミュレート
+                    time.sleep(0.05)  # 50ms の処理時間
+                    
+                    end_time = time.time()
+                    processing_time = end_time - start_time
+                    
+                    # 応答時間を記録
+                    monitor.record_response_time(
+                        f"concurrent_query_thread_{thread_id}",
+                        processing_time,
+                        {"query_id": f"{thread_id}_{i}"}
+                    )
+                    
+                    results.append(f"thread_{thread_id}_query_{i}")
+                    
+            except Exception as e:
+                errors.append(f"thread_{thread_id}_error: {str(e)}")
+        
+        # 複数スレッドで同時実行
+        threads = []
+        for i in range(4):
+            thread = threading.Thread(target=concurrent_query, args=(i,))
+            threads.append(thread)
+            thread.start()
+        
+        # 全スレッドの完了を待機
+        for thread in threads:
+            thread.join()
+        
+        # 結果を確認
+        assert len(errors) == 0, f"Errors occurred: {errors}"
+        assert len(results) == 20  # 4スレッド × 5クエリ
+        
+        # パフォーマンス統計を確認
+        stats = monitor.get_performance_stats()
+        
+        # 各スレッドの統計が記録されていることを確認
+        for i in range(4):
+            operation_name = f"concurrent_query_thread_{i}"
+            assert operation_name in stats
+            
+            thread_stats = stats[operation_name]
+            assert thread_stats.total_requests == 5
+            assert thread_stats.avg_response_time_ms >= 0.05

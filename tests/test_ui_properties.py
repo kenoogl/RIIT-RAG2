@@ -99,6 +99,14 @@ class MockSystemMonitor:
             uptime_seconds = 3600.0
             memory_usage_mb = 512.0
             disk_usage_mb = 1024.0
+            memory_usage_percent = 50.0
+            memory_available_gb = 4.0
+            memory_total_gb = 8.0
+            disk_usage_percent = 25.0
+            disk_available_gb = 100.0
+            disk_total_gb = 200.0
+            cpu_usage_percent = 25.5
+            process_count = 150
         return Status()
     
     def get_performance_stats(self, operation_type=None, hours=24):

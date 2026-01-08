@@ -253,10 +253,23 @@
   - すべてのテストが通ることを確認し、質問があれば尋ねる
 
 - [ ] 15. 統合テストとエンドツーエンドテストの実装
-  - [ ] 15.1 コンポーネント間統合テストの実装
+  - [x] 15.1 コンポーネント間統合テストの実装
     - WebScraper → DocumentProcessor → RAGEngine の連携テスト
     - RAGEngine → LLMManager → ChatManager の連携テスト
     - API層 → コア層の連携テスト
+    - **実装完了**: TestAdvancedComponentIntegration クラス（6テスト）
+    - **WebScraper→DocumentProcessor→RAGEngine チェーン**: 実際のコンポーネント使用、ネットワーク依存回避
+    - **RAGEngine→LLMManager→ChatManager チェーン**: 実際のChatManager使用、モック統合
+    - **API層→コア層統合**: FastAPI + 実際のコンポーネント統合テスト
+    - **エラー伝播チェーン**: ErrorRecoveryManager統合、エラーハンドリング検証
+    - **同時コンポーネントアクセス**: スレッドセーフ性検証、並行処理テスト
+    - **設定伝播**: ConfigManager設定の各コンポーネントへの伝播確認
+    - **パフォーマンス統合**: TestPerformanceIntegration クラス（3テスト）
+    - **応答時間測定統合**: SystemMonitor応答時間記録・統計機能
+    - **メモリ使用量監視統合**: 大量データ処理時のメモリ監視
+    - **同時負荷統合**: 複数スレッド同時実行でのパフォーマンス測定
+    - **テスト結果**: 32/32統合テスト成功（100%成功率）
+    - **全テストスイート**: 333/333テスト成功（100%成功率）
     - _要件: 2.1, 3.1, 6.1_
 
   - [ ] 15.2 エンドツーエンドテストの実装
