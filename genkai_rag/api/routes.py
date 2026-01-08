@@ -158,16 +158,16 @@ async def save_conversation_history(
     try:
         # ユーザーメッセージを保存
         user_message = create_user_message(session_id, question)
-        chat_manager.save_message(request.session_id, user_message)
+        chat_manager.save_message(session_id, user_message)
         
         # アシスタントメッセージを保存
         assistant_message = create_assistant_message(
             session_id, 
             answer, 
-            [source.url for source in sources]
+            [source.url if hasattr(source, 'url') else str(source) for source in sources]
         )
-        assistant_message.metadata = {"sources": [source.to_dict() for source in sources]}
-        chat_manager.save_message(request.session_id, assistant_message)
+        assistant_message.metadata = {"sources": [source.to_dict() if hasattr(source, 'to_dict') else source for source in sources]}
+        chat_manager.save_message(session_id, assistant_message)
         
     except Exception as e:
         logger.error(f"Failed to save conversation history: {str(e)}")

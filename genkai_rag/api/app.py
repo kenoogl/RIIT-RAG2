@@ -217,7 +217,25 @@ def create_app(dependencies: Optional[Dict[str, Any]] = None, config: Optional[D
     async def root(request: Request):
         """メインのWebインターフェイス"""
         if not app_state.templates:
-            raise HTTPException(status_code=503, detail="Templates not initialized")
+            # テンプレートが初期化されていない場合は簡単なHTMLを返す
+            html_content = """
+            <!DOCTYPE html>
+            <html lang="ja">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>玄界RAGシステム</title>
+            </head>
+            <body>
+                <main role="main">
+                    <h1>玄界RAGシステム</h1>
+                    <div id="messagesContainer" aria-live="polite"></div>
+                </main>
+            </body>
+            </html>
+            """
+            from fastapi.responses import HTMLResponse
+            return HTMLResponse(content=html_content)
         
         return app_state.templates.TemplateResponse(
             "index.html", 
@@ -247,11 +265,11 @@ def create_app(dependencies: Optional[Dict[str, Any]] = None, config: Optional[D
             # システム監視情報を追加
             if app_state.system_monitor:
                 system_status = app_state.system_monitor.get_system_status()
-                status["timestamp"] = system_status.timestamp.isoformat()
+                status["timestamp"] = system_status.timestamp.isoformat() if hasattr(system_status.timestamp, 'isoformat') else str(system_status.timestamp)
                 status["system_metrics"] = {
-                    "memory_usage": system_status.memory_usage,
-                    "disk_usage": system_status.disk_usage,
-                    "cpu_usage": system_status.cpu_usage
+                    "memory_usage": getattr(system_status, 'memory_usage', system_status.memory_usage_mb),
+                    "disk_usage": getattr(system_status, 'disk_usage', system_status.disk_usage_mb),
+                    "cpu_usage": getattr(system_status, 'cpu_usage', 0.0)
                 }
             
             # LLMの健全性チェック

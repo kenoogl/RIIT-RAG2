@@ -11,18 +11,16 @@ from unittest.mock import Mock, patch, MagicMock, AsyncMock
 from hypothesis import given, strategies as st, settings, assume, HealthCheck
 import threading
 from fastapi.testclient import TestClient
+from datetime import datetime
 
 from genkai_rag.api.app import create_app
 
 
-@pytest.fixture
-def test_client():
-    """テスト用FastAPIクライアントを作成"""
-    # モックされたアプリケーション状態
-    with patch('genkai_rag.api.app.app_state') as mock_state:
-        # 基本的なモックを設定
-        mock_rag_engine = Mock()
-        mock_rag_engine.query = AsyncMock(return_value={
+class MockRAGEngine:
+    """RAGエンジンのモッククラス"""
+    
+    async def query(self, question, model_name=None, max_sources=5, context_messages=None):
+        return {
             "answer": "テスト回答です。玄界システムは高性能なスーパーコンピュータです。",
             "sources": [
                 {
@@ -34,11 +32,17 @@ def test_client():
             ],
             "model_used": "test-model",
             "metadata": {"confidence": 0.95}
-        })
-        
-        mock_llm_manager = Mock()
-        mock_llm_manager.get_current_model.return_value = "test-model"
-        mock_llm_manager.list_available_models = AsyncMock(return_value={
+        }
+
+
+class MockLLMManager:
+    """LLMマネージャーのモッククラス"""
+    
+    def get_current_model(self):
+        return "test-model"
+    
+    async def list_available_models(self):
+        return {
             "test-model": {
                 "display_name": "テストモデル",
                 "description": "テスト用モデル",
@@ -51,76 +55,91 @@ def test_client():
                 "is_available": True,
                 "parameters": {}
             }
-        })
-        mock_llm_manager.switch_model = AsyncMock(return_value=True)
-        mock_llm_manager.check_model_health = AsyncMock(return_value=True)
-        
-        mock_chat_manager = Mock()
-        mock_chat_manager.get_chat_history.return_value = []  # 同期メソッドとして設定
-        mock_session_info = Mock()
-        mock_session_info.message_count = 0
-        mock_chat_manager.get_session_info.return_value = mock_session_info
-        mock_chat_manager.list_sessions.return_value = ["session1"]  # 同期メソッドとして設定
-        mock_chat_manager.save_message = Mock()
-        mock_chat_manager.clear_history = Mock()
-        
-        mock_system_monitor = Mock()
-        mock_status = Mock()
-        mock_status.timestamp = "2024-01-01T00:00:00"
-        mock_status.uptime_seconds = 3600.0
-        mock_status.memory_usage_mb = 512.0
-        mock_status.disk_usage_mb = 1024.0
-        mock_system_monitor.get_system_status.return_value = mock_status
-        
-        mock_config_manager = Mock()
-        mock_config_manager.load_config.return_value = {
+        }
+    
+    async def switch_model(self, model_name, force=False):
+        return True
+    
+    async def check_model_health(self):
+        return True
+
+
+class MockChatManager:
+    """チャットマネージャーのモッククラス"""
+    
+    def get_chat_history(self, session_id, limit=10):
+        return []
+    
+    def get_session_info(self, session_id):
+        class SessionInfo:
+            message_count = 0
+        return SessionInfo()
+    
+    def list_sessions(self):
+        return ["session1"]
+    
+    def save_message(self, session_id, message):
+        pass
+    
+    def clear_history(self, session_id):
+        pass
+
+
+class MockSystemMonitor:
+    """システムモニターのモッククラス"""
+    
+    def get_system_status(self):
+        class Status:
+            timestamp = "2024-01-01T00:00:00"
+            uptime_seconds = 3600.0
+            memory_usage_mb = 512.0
+            disk_usage_mb = 1024.0
+        return Status()
+
+
+class MockConfigManager:
+    """設定マネージャーのモッククラス"""
+    
+    def load_config(self):
+        return {
             "web": {"cors_origins": ["*"], "allowed_hosts": ["*"]},
             "llm": {"ollama_url": "http://localhost:11434"},
             "chat": {"max_history_size": 50}
         }
-        
-        mock_document_processor = Mock()
-        
-        # テンプレートのモック
-        from fastapi.responses import HTMLResponse
-        
-        def mock_template_response(template_name, context):
-            """実際のHTMLテンプレートを模擬"""
-            html_content = """
-            <!DOCTYPE html>
-            <html lang="ja">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta name="description" content="九州大学スーパーコンピュータ玄界システム用RAG質問応答システム">
-                <title>玄界RAGシステム</title>
-            </head>
-            <body>
-                <main role="main">
-                    <h1>玄界RAGシステム</h1>
-                    <div id="messagesContainer" aria-live="polite"></div>
-                </main>
-            </body>
-            </html>
-            """
-            return HTMLResponse(content=html_content)
-        
-        mock_templates = Mock()
-        mock_templates.TemplateResponse = mock_template_response
-        
-        # モック状態を設定
-        mock_state.rag_engine = mock_rag_engine
-        mock_state.llm_manager = mock_llm_manager
-        mock_state.chat_manager = mock_chat_manager
-        mock_state.system_monitor = mock_system_monitor
-        mock_state.config_manager = mock_config_manager
-        mock_state.document_processor = mock_document_processor
-        mock_state.templates = mock_templates
-        
-        # アプリケーションを作成
-        app = create_app()
-        
-        yield TestClient(app)
+
+
+class MockDocumentProcessor:
+    """文書プロセッサーのモッククラス"""
+    pass
+
+
+@pytest.fixture
+def test_client():
+    """テスト用FastAPIクライアントを作成"""
+    # 依存性注入用のコンポーネントを作成
+    dependencies = {
+        "rag_engine": MockRAGEngine(),
+        "llm_manager": MockLLMManager(),
+        "chat_manager": MockChatManager(),
+        "system_monitor": MockSystemMonitor(),
+        "config_manager": MockConfigManager(),
+        "document_processor": MockDocumentProcessor()
+    }
+    
+    # アプリケーションを作成
+    app = create_app(dependencies=dependencies)
+    
+    # 依存性注入のオーバーライド
+    from genkai_rag.api.routes import (
+        get_rag_engine, get_llm_manager, get_chat_manager, get_system_monitor
+    )
+    
+    app.dependency_overrides[get_rag_engine] = lambda: dependencies["rag_engine"]
+    app.dependency_overrides[get_llm_manager] = lambda: dependencies["llm_manager"]
+    app.dependency_overrides[get_chat_manager] = lambda: dependencies["chat_manager"]
+    app.dependency_overrides[get_system_monitor] = lambda: dependencies["system_monitor"]
+    
+    yield TestClient(app)
 
 
 class TestUIProcessingIndicator:
