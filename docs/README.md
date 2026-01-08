@@ -62,9 +62,23 @@ RESTful APIの詳細仕様とサンプルコードを提供します。
 
 ### 🚀 最も簡単なインストール方法（推奨）
 
-**LLMアシスタント（Kiro/Antigravity）を使用したインストール**
+**LLMアシスタントを使用したインストール**
 
-この方法が**最も簡単で確実**です。LLMアシスタントがすべての手順を自動化し、エラーが発生した場合も自動的に解決します。
+この方法が**最も簡単で確実**です。様々なLLMアシスタントを活用して、すべての手順を自動化または段階的に支援します。
+
+#### 対応LLMアシスタント
+
+**🔧 コード実行機能付き（推奨）**
+- **Kiro/Antigravity**: VSCode統合、完全自動化
+- **Cursor**: AI統合エディタ、リアルタイム支援  
+- **ChatGPT Plus**: Code Interpreter機能
+- **Claude 4.5**: Artifacts機能
+
+**💬 チャット型（指示ベース）**
+- **ChatGPT（GPT-5.2）**: OpenAI（無料/有料）- 最新モデル
+- **Claude（Claude 4.5）**: Anthropic（無料/有料）- 最新モデル
+- **Gemini（Gemini 3）**: Google - 最新モデル
+- **Ollama**: ローカルLLM（llama3.2, gemma2等）
 
 #### 手順
 
@@ -74,9 +88,9 @@ RESTful APIの詳細仕様とサンプルコードを提供します。
    cd RIIT-RAG2
    ```
 
-2. **LLMアシスタントの起動**
-   - **Kiro**を使用する場合: プロジェクトディレクトリでKiroを起動
-   - **Antigravity**を使用する場合: プロジェクトディレクトリでAntigravityを起動
+2. **LLMアシスタントの選択と起動**
+   - **コード実行機能付き**: VSCodeでKiro/Antigravity、またはCursor等を起動
+   - **チャット型**: ChatGPT、Claude、Gemini等のWebインターフェイスにアクセス
 
 3. **インストール指示**
    LLMアシスタントに以下のように指示してください：
