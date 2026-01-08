@@ -123,7 +123,7 @@ async def _initialize_legacy_components():
     if not app_state.llm_manager:
         llm_config = config.get("llm", {})
         app_state.llm_manager = LLMManager(
-            ollama_url=llm_config.get("ollama_url", "http://localhost:11434")
+            ollama_base_url=llm_config.get("base_url", "http://localhost:11434")
         )
     
     # 文書プロセッサーの初期化
@@ -302,7 +302,7 @@ def create_app(dependencies: Optional[Dict[str, Any]] = None, config: Optional[D
             # LLMの健全性チェック
             if app_state.llm_manager:
                 try:
-                    llm_health = await app_state.llm_manager.check_model_health()
+                    llm_health = app_state.llm_manager.check_model_health()
                     status["components"]["llm_health"] = llm_health
                 except Exception as e:
                     logger.warning(f"LLM health check failed: {e}")
@@ -348,3 +348,7 @@ def create_app(dependencies: Optional[Dict[str, Any]] = None, config: Optional[D
 def get_app_state() -> AppState:
     """アプリケーション状態を取得"""
     return app_state
+
+
+# デフォルトアプリケーションインスタンス（uvicorn用）
+app = create_app()

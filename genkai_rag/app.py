@@ -292,7 +292,7 @@ class GenkaiRAGSystem:
         self.utils_config_manager = UtilsConfigManager()
         self.config = self.utils_config_manager.get_all()
     
-    async def start_server(self, host: str = None, port: int = None) -> None:
+    def start_server(self, host: str = None, port: int = None) -> None:
         """
         Webサーバーを開始
         
@@ -300,9 +300,6 @@ class GenkaiRAGSystem:
             host: ホストアドレス
             port: ポート番号
         """
-        if not self._initialized:
-            await self.initialize()
-        
         web_config = self.config.get("web", {})
         host = host or web_config.get("host", "0.0.0.0")
         port = port or web_config.get("port", 8000)
@@ -310,12 +307,23 @@ class GenkaiRAGSystem:
         logger.info(f"Starting web server on {host}:{port}")
         
         import uvicorn
-        await uvicorn.run(
-            self.app,
+        config = uvicorn.Config(
+            app=self.app,
             host=host,
             port=port,
             log_level="info"
         )
+        server = uvicorn.Server(config)
+        
+        # 既存のイベントループで実行
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            # 既にイベントループが実行中の場合
+            loop.create_task(server.serve())
+        except RuntimeError:
+            # イベントループが実行されていない場合
+            asyncio.run(server.serve())
     
     async def shutdown(self) -> None:
         """システムをシャットダウン"""

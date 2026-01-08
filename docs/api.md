@@ -78,25 +78,62 @@ HTTP/1.1 200 OK
 Content-Type: application/json
 
 {
-  "answer": "玄界システムは、九州大学情報基盤研究開発センターが運用するスーパーコンピュータシステムです...",
-  "sources": [
-    {
-      "title": "玄界システム概要",
-      "url": "https://www.cc.kyushu-u.ac.jp/scp/system/",
-      "section": "システム概要",
-      "relevance_score": 0.95,
-      "content_preview": "玄界システムは..."
-    }
-  ],
-  "processing_time": 2.34,
-  "model_used": "llama3.2:3b",
-  "session_id": "user-session-123",
+  "answer": "玄界システムとは、九州大学情報基盤研究開発センターによって開発および運用されている大規模なコンピュータサイエンスプロジェクトです。\n\nこのシステムは、大きなデータセットを処理して分析するために使用されます。これにはさまざまな種類のアプリケーションが含まれます。\n\n例えば、文書に記載されている「データ processing」では、複数のデータセットを組み合わせて、特定の分析手順を実行します。さらに、「データ モデリング」では、データセットから要素を抽出し、そのモデリングに基づいて関連するアプリケーションを開発できます。",
+  "sources": [],
+  "processing_time": 19.98,
+  "model_used": "llama3.2:1b",
+  "session_id": "test-session-001",
+  "timestamp": "2026-01-08T19:37:07.053547",
   "metadata": {
-    "total_documents_searched": 150,
-    "reranking_applied": true,
+    "total_documents_searched": 0,
+    "reranking_applied": false,
     "context_length": 2048
   }
 }
+```
+
+#### レスポンスフィールド
+
+| フィールド | 型 | 説明 |
+|------------|----|----|
+| `answer` | string | 生成された回答 |
+| `sources` | array | 回答の根拠となった文書出典のリスト |
+| `processing_time` | number | 処理時間（秒） |
+| `model_used` | string | 使用されたLLMモデル名 |
+| `session_id` | string | セッションID |
+| `timestamp` | string | 回答生成時刻（ISO 8601形式） |
+| `metadata` | object | 追加のメタデータ |
+
+#### エラーレスポンス
+
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{
+  "detail": [
+    {
+      "type": "missing",
+      "loc": ["body", "session_id"],
+      "msg": "Field required",
+      "input": {
+        "question": "玄界システムについて教えてください",
+        "include_history": false,
+        "max_sources": 3
+      }
+    }
+  ]
+}
+```
+
+```http
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/json
+
+{
+  "detail": "Internal server error"
+}
+```
 ```
 
 #### レスポンスフィールド
@@ -147,31 +184,44 @@ Content-Type: application/json
 {
   "models": [
     {
-      "name": "llama3.2:3b",
-      "display_name": "Llama 3.2 3B",
-      "description": "高性能汎用モデル",
-      "is_available": true,
-      "is_default": true,
-      "parameters": {
-        "size": "3B",
-        "context_window": 8192,
-        "languages": ["ja", "en"]
-      }
-    },
-    {
-      "name": "gemma2:2b",
-      "display_name": "Gemma 2 2B",
-      "description": "バランス型モデル",
+      "name": "llama3.2:1b",
+      "display_name": "llama3.2:1b",
+      "description": "Size: 1321098329, Modified: 2026-01-08 19:20:44.032565+09:00",
       "is_available": true,
       "is_default": false,
       "parameters": {
-        "size": "2B",
-        "context_window": 4096,
-        "languages": ["ja", "en"]
+        "parent_model": "",
+        "format": "gguf",
+        "family": "llama",
+        "families": ["llama"],
+        "parameter_size": "1.2B",
+        "quantization_level": "Q8_0"
       }
     }
   ],
-  "current_model": "llama3.2:3b"
+  "current_model": "not_set",
+  "timestamp": "2026-01-08T19:34:33.420817"
+}
+```
+
+### GET /api/models/current
+
+現在使用中のモデルを取得します。
+
+#### リクエスト
+
+```http
+GET /api/models/current
+```
+
+#### レスポンス
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "current_model": "llama3.2:1b"
 }
 ```
 
@@ -186,8 +236,7 @@ POST /api/models/switch
 Content-Type: application/json
 
 {
-  "model_name": "gemma2:2b",
-  "force": false
+  "model_name": "llama3.2:1b"
 }
 ```
 
@@ -196,7 +245,7 @@ Content-Type: application/json
 | パラメータ | 型 | 必須 | 説明 |
 |------------|----|----|------|
 | `model_name` | string | ✓ | 切り替え先のモデル名 |
-| `force` | boolean | | 強制切り替え（デフォルト: false） |
+| `force` | boolean | | 強制切り替え（デフォルト: false、現在未使用） |
 
 #### レスポンス
 
@@ -206,11 +255,32 @@ Content-Type: application/json
 
 {
   "success": true,
-  "message": "Model switched to gemma2:2b",
+  "message": "Model switched to llama3.2:1b",
   "data": {
-    "model_name": "gemma2:2b",
-    "previous_model": "llama3.2:3b",
-    "switch_time": "2024-01-15T10:30:00Z"
+    "model_name": "llama3.2:1b"
+  },
+  "timestamp": "2026-01-08T19:36:27.140796"
+}
+```
+
+#### エラーレスポンス
+
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{
+  "detail": "Model 'invalid-model' not found. Available models: ['llama3.2:1b']"
+}
+```
+
+```http
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/json
+
+{
+  "detail": "Failed to switch model"
+}
   }
 }
 ```
@@ -371,28 +441,33 @@ Content-Type: application/json
 {
   "status": "healthy",
   "version": "1.0.0",
-  "uptime_seconds": 86400,
-  "memory_usage_mb": 1024.5,
-  "disk_usage_mb": 5120.0,
-  "active_sessions": 15,
-  "total_queries": 1250,
-  "current_model": "llama3.2:3b",
+  "uptime_seconds": 5605569.03716,
+  "memory_usage_mb": 18923.52,
+  "disk_usage_mb": 1490140.734375,
+  "active_sessions": 31,
+  "total_queries": 0,
+  "current_model": "llama3.2:1b",
   "concurrency_metrics": {
-    "active_requests": 3,
-    "queued_requests": 0,
-    "total_requests": 1250,
-    "average_response_time": 2.1,
-    "error_rate": 0.02
+    "total_requests": 0,
+    "completed_requests": 0,
+    "failed_requests": 0,
+    "average_processing_time": 0.0,
+    "average_queue_time": 0.0,
+    "success_rate": 0.0
   },
-  "performance_stats": {
-    "query": {
-      "total_requests": 1200,
-      "average_response_time": 2.1,
-      "p95_response_time": 4.5,
-      "error_count": 24,
-      "success_rate": 0.98
-    }
-  }
+  "performance_stats": {},
+  "timestamp": "2026-01-08T19:34:41.046655"
+}
+```
+
+#### エラーレスポンス
+
+```http
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/json
+
+{
+  "detail": "Failed to get system status"
 }
 ```
 
@@ -425,6 +500,7 @@ Content-Type: application/json
     "storage_available_gb": 45.2
   }
 }
+```
 ```
 
 ### GET /api/system/performance
@@ -523,20 +599,20 @@ Content-Type: application/json
 
 {
   "status": "healthy",
-  "timestamp": 1705312800.123,
+  "timestamp": 1767868136.336216,
   "service": "genkai-rag-system",
   "version": "1.0.0"
 }
 ```
 
-### GET /api/health/detailed
+### GET /health
 
-詳細なヘルスチェックを実行します。
+ルートレベルのヘルスチェック（詳細情報付き）を実行します。
 
 #### リクエスト
 
 ```http
-GET /api/health/detailed
+GET /health
 ```
 
 #### レスポンス
@@ -547,23 +623,37 @@ Content-Type: application/json
 
 {
   "status": "healthy",
-  "timestamp": 1705312800.123,
-  "service": "genkai-rag-system",
-  "version": "1.0.0",
   "components": {
-    "system_monitor": "healthy",
-    "llm_manager": "healthy",
-    "chat_manager": "healthy",
-    "database": "healthy"
+    "config_manager": true,
+    "rag_engine": true,
+    "llm_manager": true,
+    "chat_manager": true,
+    "system_monitor": true,
+    "error_recovery_manager": false,
+    "web_scraper": false,
+    "document_processor": true,
+    "concurrency_manager": true,
+    "llm_health": true
   },
-  "metrics": {
-    "memory_usage_percent": 65.2,
-    "disk_usage_percent": 25.6,
-    "active_sessions": 15,
-    "uptime_seconds": 86400
-  },
-  "warnings": []
+  "timestamp": "2026-01-08T10:35:36.336216",
+  "system_metrics": {
+    "memory_usage": 18923.52,
+    "disk_usage": 1490140.734375,
+    "cpu_usage": 0.0
+  }
 }
+```
+
+#### エラーレスポンス
+
+```http
+HTTP/1.1 503 Service Unavailable
+Content-Type: application/json
+
+{
+  "detail": "Service unavailable"
+}
+```
 ```
 
 ## エラーハンドリング

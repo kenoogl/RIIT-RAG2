@@ -22,9 +22,9 @@ from genkai_rag.utils.logging import setup_logging
 logger = logging.getLogger(__name__)
 
 
-async def start_server(config_path: str = None, host: str = None, port: int = None):
+def start_server_sync(config_path: str = None, host: str = None, port: int = None):
     """
-    Webサーバーを開始
+    Webサーバーを同期的に開始
     
     Args:
         config_path: 設定ファイルのパス
@@ -32,20 +32,35 @@ async def start_server(config_path: str = None, host: str = None, port: int = No
         port: ポート番号
     """
     try:
-        # システムを初期化
-        system = await initialize_system(config_path)
+        # ログ設定
+        setup_logging(log_level="INFO")
         
-        # サーバーを開始
-        await system.start_server(host=host, port=port)
+        # 設定の読み込み
+        from genkai_rag.utils.config import ConfigManager
+        config_manager = ConfigManager()
+        config = config_manager.get_all()
+        
+        web_config = config.get("web", {})
+        host = host or web_config.get("host", "0.0.0.0")
+        port = port or web_config.get("port", 8000)
+        
+        logger.info(f"Starting web server on {host}:{port}")
+        
+        # uvicornで直接起動
+        import uvicorn
+        uvicorn.run(
+            "genkai_rag.api.app:app",
+            host=host,
+            port=port,
+            log_level="info",
+            reload=False
+        )
         
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down...")
     except Exception as e:
         logger.error(f"Server startup failed: {str(e)}")
         raise
-    finally:
-        # システムをシャットダウン
-        await shutdown_system()
 
 
 async def run_query(query: str, url: str = None, config_path: str = None):
@@ -183,7 +198,7 @@ def main():
     args = parser.parse_args()
     
     # ログ設定
-    setup_logging(level=args.log_level)
+    setup_logging(log_level=args.log_level)
     
     # コマンドが指定されていない場合はサーバーを起動
     if not args.command:
@@ -195,11 +210,11 @@ def main():
     try:
         # コマンドに応じて処理を実行
         if args.command == "server":
-            asyncio.run(start_server(
+            start_server_sync(
                 config_path=args.config,
                 host=args.host,
                 port=args.port
-            ))
+            )
         elif args.command == "query":
             asyncio.run(run_query(
                 query=args.query,

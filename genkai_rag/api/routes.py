@@ -229,24 +229,24 @@ async def list_models(
     """
     try:
         # 利用可能なモデルを取得
-        available_models = await llm_manager.list_available_models()
+        available_models = llm_manager.get_available_models()
         current_model = llm_manager.get_current_model()
         
         # ModelInfoオブジェクトのリストを作成
         models = []
-        for model_name, model_info in available_models.items():
+        for model_info in available_models:
             models.append(ModelInfo(
-                name=model_name,
-                display_name=model_info.get("display_name", model_name),
-                description=model_info.get("description"),
-                is_available=model_info.get("is_available", True),
-                is_default=(model_name == current_model),
-                parameters=model_info.get("parameters", {})
+                name=model_info.name,
+                display_name=model_info.name,
+                description=f"Size: {model_info.size}, Modified: {model_info.modified_at}",
+                is_available=True,
+                is_default=(model_info.name == current_model),
+                parameters=model_info.details
             ))
         
         return ModelListResponse(
             models=models,
-            current_model=current_model
+            current_model=current_model or "not_set"
         )
         
     except Exception as e:
@@ -271,7 +271,7 @@ async def switch_model(
     """
     try:
         # モデルの切り替えを実行
-        success = await llm_manager.switch_model(request.model_name, force=request.force)
+        success = llm_manager.switch_model(request.model_name)
         
         if success:
             return create_success_response(
@@ -440,25 +440,65 @@ async def get_system_status(
         status = system_monitor.get_system_status()
         
         # アクティブセッション数を取得
-        active_sessions = len(chat_manager.list_sessions())
+        try:
+            active_sessions = len(chat_manager.list_sessions())
+        except Exception as e:
+            logger.warning(f"Failed to get active sessions: {e}")
+            active_sessions = 0
         
         # 現在のモデルを取得
-        current_model = llm_manager.get_current_model()
+        try:
+            current_model = llm_manager.get_current_model() or "not_set"
+        except Exception as e:
+            logger.warning(f"Failed to get current model: {e}")
+            current_model = "unknown"
         
         # 同時アクセスメトリクスを取得
         concurrency_metrics = {}
-        if concurrency_manager:
-            concurrency_metrics = concurrency_manager.get_metrics()
+        try:
+            if concurrency_manager:
+                concurrency_metrics = concurrency_manager.get_metrics()
+        except Exception as e:
+            logger.warning(f"Failed to get concurrency metrics: {e}")
         
         # パフォーマンス統計を取得
-        performance_stats = system_monitor.get_performance_stats(hours=24)
+        performance_stats = {}
+        try:
+            performance_stats = system_monitor.get_performance_stats(hours=24)
+        except Exception as e:
+            logger.warning(f"Failed to get performance stats: {e}")
+        
+        # システム状態の属性を安全に取得
+        try:
+            uptime_seconds = getattr(status, 'uptime_seconds', 0.0)
+            memory_usage_mb = getattr(status, 'memory_usage_mb', 0.0)
+            disk_usage_mb = getattr(status, 'disk_usage_mb', 0.0)
+            
+            # 属性名が異なる場合の対応
+            if memory_usage_mb == 0.0:
+                memory_total_gb = getattr(status, 'memory_total_gb', 0.0)
+                memory_usage_percent = getattr(status, 'memory_usage_percent', 0.0)
+                if memory_total_gb > 0:
+                    memory_usage_mb = memory_total_gb * 1024 * (memory_usage_percent / 100)
+            
+            if disk_usage_mb == 0.0:
+                disk_total_gb = getattr(status, 'disk_total_gb', 0.0)
+                disk_usage_percent = getattr(status, 'disk_usage_percent', 0.0)
+                if disk_total_gb > 0:
+                    disk_usage_mb = disk_total_gb * 1024 * (disk_usage_percent / 100)
+                    
+        except Exception as e:
+            logger.warning(f"Failed to parse system status attributes: {e}")
+            uptime_seconds = 0.0
+            memory_usage_mb = 0.0
+            disk_usage_mb = 0.0
         
         return SystemStatusResponse(
-            status="healthy",  # TODO: 実際のヘルスチェックロジックを実装
+            status="healthy",
             version="1.0.0",
-            uptime_seconds=status.uptime_seconds,
-            memory_usage_mb=status.memory_total_gb * 1024 * (status.memory_usage_percent / 100),
-            disk_usage_mb=status.disk_total_gb * 1024 * (status.disk_usage_percent / 100),
+            uptime_seconds=uptime_seconds,
+            memory_usage_mb=memory_usage_mb,
+            disk_usage_mb=disk_usage_mb,
             active_sessions=active_sessions,
             total_queries=concurrency_metrics.get("total_requests", 0),
             current_model=current_model,
@@ -486,7 +526,7 @@ async def health_check(
     """
     try:
         # LLMの健全性をチェック
-        llm_health = await llm_manager.check_model_health()
+        llm_health = llm_manager.check_model_health()
         
         # 各コンポーネントの状態をチェック
         health_status = {

@@ -98,6 +98,72 @@ ollama pull llama3.2:7b
 # モデルの削除
 ollama rm llama3.2:1b
 
+# モデルの切り替え（API経由）
+curl -X POST http://localhost:8000/api/models/switch \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "llama3.2:7b"}'
+
+# 現在のモデル確認
+curl http://localhost:8000/api/models/current
+```
+
+#### モデル最適化設定
+
+```bash
+# モデル固有の設定確認
+curl http://localhost:8000/api/models/llama3.2:1b/config
+
+# パフォーマンス設定の調整
+curl -X PUT http://localhost:8000/api/models/llama3.2:1b/config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "temperature": 0.7,
+    "max_tokens": 2048,
+    "context_length": 4096
+  }'
+```
+
+### macOS環境での運用
+
+#### Homebrewサービス管理
+
+```bash
+# Ollamaサービスの状態確認
+brew services list | grep ollama
+
+# サービスの開始
+brew services start ollama
+
+# サービスの停止
+brew services stop ollama
+
+# サービスの再起動
+brew services restart ollama
+```
+
+#### プロセス管理
+
+```bash
+# 玄界RAGシステムのプロセス確認
+ps aux | grep "python.*main.py"
+
+# メモリ使用量の確認
+top -l 1 | grep "python.*main.py"
+
+# プロセスの終了
+pkill -f "python main.py server"
+```
+
+#### 開発環境での起動
+
+```bash
+# 開発モードでの起動
+python main.py server --log-level DEBUG --port 8000
+
+# 自動リロード付きでの起動
+uvicorn genkai_rag.api.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
 # システムでのモデル切り替え
 curl -X POST http://localhost:8000/api/models/switch \
   -H "Content-Type: application/json" \

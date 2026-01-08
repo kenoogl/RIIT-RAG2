@@ -86,6 +86,42 @@ RESTful APIの詳細仕様とサンプルコードを提供します。
 - [インストールガイド](installation.md) - 導入要件
 - [運用ガイド](operations.md) - 運用コスト
 
+#### macOSユーザー
+- [インストールガイド - macOS特有の注意事項](installation.md#macos特有の注意事項) - macOS環境での構築
+- [運用ガイド - macOS環境での運用](operations.md#macos環境での運用) - macOS特有の運用手順
+- [API ドキュメント](api.md) - 動作確認済みAPI仕様
+
+### 3. macOS環境での簡単セットアップ
+
+macOS環境で最速でシステムを起動する手順：
+
+```bash
+# 1. Homebrewのインストール（未インストールの場合）
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 2. 必要なツールのインストール
+brew install python@3.12 ollama git
+
+# 3. Ollamaサービスの開始
+brew services start ollama
+
+# 4. 軽量モデルのダウンロード
+ollama pull llama3.2:1b
+
+# 5. プロジェクトのクローンと環境構築
+git clone <repository-url>
+cd genkai-rag-system
+python3.12 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 6. サーバーの起動
+python main.py server --port 8000
+
+# 7. 動作確認（別ターミナルで実行）
+curl http://localhost:8000/api/health
+```
+
 ## 技術仕様概要
 
 ### システム構成
@@ -95,9 +131,40 @@ RESTful APIの詳細仕様とサンプルコードを提供します。
 - **ベクトルDB**: Chroma
 - **フロントエンド**: HTML/CSS/JavaScript
 
+### 対応環境
+- **OS**: Ubuntu 20.04+ / CentOS 8+ / **macOS 12+** / Windows 10+
+- **Python**: 3.12以上（推奨）
+- **アーキテクチャ**: x86_64, ARM64（Apple Silicon対応）
+
 ### 主要機能
 - 文書自動取得・処理
 - インテリジェント質問応答
+- マルチモデル対応（Ollama統合）
+- リアルタイム会話履歴管理
+- システム監視・ログ管理
+- RESTful API
+
+### 検証済み環境
+- **macOS 13+ (Apple Silicon)**: ✅ 完全対応
+- **Python 3.12**: ✅ 推奨バージョン
+- **Ollama**: ✅ llama3.2:1b, llama3.2:3b対応
+- **Homebrew**: ✅ 推奨インストール方法
+
+## 最新の更新情報
+
+### 2026年1月版アップデート
+- **macOS完全対応**: Apple Silicon（M1/M2）での動作確認完了
+- **Ollama統合強化**: LlamaIndexとの統合を改善、OpenAI依存を完全除去
+- **API安定性向上**: 全エンドポイントの動作確認とエラーハンドリング改善
+- **ドキュメント更新**: 実際のテスト結果を反映したリアルな例を追加
+
+### 動作確認済み機能
+- ✅ サーバー起動・停止
+- ✅ Webインターフェイス表示
+- ✅ モデル管理（一覧取得、切り替え、現在モデル確認）
+- ✅ システム状態監視
+- ✅ 質問応答処理（Ollama経由）
+- ✅ ヘルスチェック機能
 - 会話履歴管理
 - マルチモデル対応
 - リアルタイム監視

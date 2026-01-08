@@ -565,6 +565,272 @@ pip install --force-reinstall -r requirements.txt
 python --version  # 3.11以上であることを確認
 ```
 
+#### 6. LlamaIndexの依存関係競合
+
+**エラー**: `pip's dependency resolver does not currently take into account all the packages`
+
+**解決方法**:
+```bash
+# 特定のバージョンを強制インストール
+pip install llama-index-llms-ollama==0.1.2 --force-reinstall
+
+# 依存関係の確認
+pip check
+
+# 必要に応じて仮想環境を再作成
+rm -rf venv
+python3.12 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+#### 7. OpenAI APIキーエラー
+
+**エラー**: `No API key found for OpenAI`
+
+**解決方法**:
+```bash
+# これは正常な動作です。システムはOllamaを使用するため、OpenAIキーは不要
+# ログに表示されるエラーは無視して構いません
+
+# 確認方法：
+curl http://localhost:8000/api/models
+# 利用可能なOllamaモデルが表示されれば正常
+```
+
+#### 8. asyncioイベントループエラー
+
+**エラー**: `asyncio.run() cannot be called from a running event loop`
+
+**解決方法**:
+```bash
+# main.pyを使用してサーバーを起動
+python main.py server --port 8000
+
+# または直接uvicornを使用
+uvicorn genkai_rag.api.app:app --host 0.0.0.0 --port 8000
+```
+
+## macOS特有の注意事項
+
+### 1. 環境準備
+
+#### Homebrewのインストール（推奨）
+```bash
+# Homebrewのインストール
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# パスの設定
+echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+eval "$(/opt/homebrew/bin/brew shellenv)"
+```
+
+#### Python 3.12のインストール
+```bash
+# Homebrewを使用（推奨）
+brew install python@3.12
+
+# パスの確認
+which python3.12
+python3.12 --version
+```
+
+#### Ollamaのインストール
+```bash
+# Homebrewを使用（推奨）
+brew install ollama
+
+# サービスの開始
+brew services start ollama
+
+# 動作確認
+ollama --version
+ollama list
+```
+
+### 2. 依存関係のインストール
+
+#### 必要なシステムライブラリ
+```bash
+# Xcodeコマンドラインツール
+xcode-select --install
+
+# 追加のライブラリ（必要に応じて）
+brew install pkg-config libffi openssl
+```
+
+#### Python仮想環境の作成
+```bash
+# プロジェクトディレクトリに移動
+cd /path/to/genkai-rag-system
+
+# 仮想環境の作成
+python3.12 -m venv venv
+
+# 仮想環境の有効化
+source venv/bin/activate
+
+# pipのアップグレード
+pip install --upgrade pip
+
+# 依存関係のインストール
+pip install -r requirements.txt
+```
+
+### 3. 初回起動時の注意点
+
+#### モデルのダウンロード
+```bash
+# 軽量モデルから開始（推奨）
+ollama pull llama3.2:1b
+
+# モデルの確認
+ollama list
+```
+
+#### サーバーの起動
+```bash
+# main.pyを使用（推奨）
+python main.py server --port 8000
+
+# または直接uvicornを使用
+uvicorn genkai_rag.api.app:app --host 0.0.0.0 --port 8000
+```
+
+### 4. 動作確認手順
+
+#### 1. 基本的なヘルスチェック
+```bash
+# サーバーが起動するまで待機（約15-30秒）
+sleep 15
+
+# ヘルスチェック
+curl http://localhost:8000/api/health
+```
+
+#### 2. モデル管理の確認
+```bash
+# 利用可能なモデル一覧
+curl http://localhost:8000/api/models
+
+# モデルの切り替え
+curl -X POST http://localhost:8000/api/models/switch \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "llama3.2:1b"}'
+
+# 現在のモデル確認
+curl http://localhost:8000/api/models/current
+```
+
+#### 3. システム状態の確認
+```bash
+# システム状態
+curl http://localhost:8000/api/system/status
+```
+
+#### 4. 質問応答のテスト
+```bash
+# 簡単な質問でテスト
+curl -X POST http://localhost:8000/api/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "玄界システムについて教えてください",
+    "session_id": "test-session-001",
+    "include_history": false,
+    "max_sources": 3
+  }'
+```
+
+### 5. macOS特有のトラブルシューティング
+
+#### メモリ使用量の監視
+```bash
+# メモリ使用量の確認
+top -l 1 | grep "PhysMem"
+
+# プロセス別メモリ使用量
+ps aux | grep python | head -10
+```
+
+#### ポート競合の解決
+```bash
+# ポート使用状況の確認（macOS）
+lsof -i :8000
+
+# プロセスの終了
+kill -9 <PID>
+
+# 別のポートを使用
+python main.py server --port 8001
+```
+
+#### Homebrewサービスの管理
+```bash
+# Ollamaサービスの状態確認
+brew services list | grep ollama
+
+# サービスの再起動
+brew services restart ollama
+
+# サービスの停止
+brew services stop ollama
+```
+
+### 6. パフォーマンス最適化
+
+#### Apple Siliconでの最適化
+```bash
+# Apple Silicon（M1/M2）の場合
+export PYTORCH_ENABLE_MPS_FALLBACK=1
+
+# メモリ使用量の制限
+export GENKAI_MAX_CONCURRENT_REQUESTS=5
+```
+
+#### メモリ不足時の対処
+```bash
+# 軽量モデルの使用
+ollama pull llama3.2:1b
+
+# システム設定での制限
+export GENKAI_CHUNK_SIZE=500
+export GENKAI_MAX_SOURCES=3
+```
+
+### 7. 開発環境での注意点
+
+#### ログレベルの調整
+```bash
+# デバッグモードでの起動
+python main.py server --log-level DEBUG --port 8000
+```
+
+#### 自動リロードの有効化
+```bash
+# 開発時の自動リロード
+uvicorn genkai_rag.api.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### 8. 本番環境への移行
+
+#### 設定ファイルの調整
+```bash
+# 本番用設定の作成
+cp config/default.yaml config/production.yaml
+
+# 設定の編集
+nano config/production.yaml
+```
+
+#### セキュリティ設定
+```bash
+# ファイアウォール設定（macOS）
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setallowsigned on
+```
+
+この手順に従うことで、macOS環境でも玄界RAGシステムを確実にインストール・運用できます。
+
 ### ログ分析
 
 #### エラーログの確認

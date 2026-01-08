@@ -10,11 +10,12 @@ from dataclasses import dataclass
 from datetime import datetime
 import time
 
-from llama_index.core import VectorStoreIndex, Document as LlamaDocument
+from llama_index.core import VectorStoreIndex, Document as LlamaDocument, Settings
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.postprocessor import SimilarityPostprocessor
 from llama_index.core.schema import NodeWithScore
+from llama_index.llms.ollama import Ollama
 
 from ..models.document import Document, DocumentSource
 from ..models.chat import Message
@@ -77,10 +78,47 @@ class RAGEngine:
         self.query_engine = None
         self.retriever = None
         self.reranker = None
+        self.ollama_llm = None
+        
+        # OllamaのLLMを設定
+        self._setup_ollama_llm()
         
         self._initialize_query_engine()
         
         logger.info(f"RAGEngine initialized with similarity_threshold={similarity_threshold}")
+    
+    def _setup_ollama_llm(self) -> None:
+        """OllamaのLLMを設定"""
+        try:
+            # LLMManagerからOllamaの設定を取得
+            ollama_url = self.llm_manager.ollama_base_url
+            
+            # デフォルトモデルを設定（利用可能なモデルから選択）
+            try:
+                available_models = self.llm_manager.get_available_models()
+                if available_models:
+                    default_model = available_models[0].name
+                else:
+                    default_model = "llama3.2:1b"  # フォールバック
+            except Exception:
+                default_model = "llama3.2:1b"  # フォールバック
+            
+            # OllamaのLLMインスタンスを作成
+            self.ollama_llm = Ollama(
+                model=default_model,
+                base_url=ollama_url,
+                request_timeout=120.0
+            )
+            
+            # LlamaIndexのグローバル設定にOllamaを設定
+            Settings.llm = self.ollama_llm
+            
+            logger.info(f"Ollama LLM configured with model: {default_model}, URL: {ollama_url}")
+            
+        except Exception as e:
+            logger.error(f"Failed to setup Ollama LLM: {e}")
+            # フォールバック: LLMManagerを直接使用
+            self.ollama_llm = None
     
     def _initialize_query_engine(self) -> None:
         """クエリエンジンを初期化"""
