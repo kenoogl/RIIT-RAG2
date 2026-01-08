@@ -56,6 +56,17 @@ api:
   cors_origins: ["*"]
   max_concurrent_requests: 10
 
+# 同時アクセス処理設定
+concurrency:
+  max_concurrent_requests: 10
+  max_queue_size: 100
+  request_timeout: 30.0
+  rate_limit_per_minute: 60
+  enable_request_queuing: true
+  enable_rate_limiting: true
+  connection_pool_size: 20
+  connection_pool_timeout: 5.0
+
 # データ保存設定
 storage:
   data_directory: "./data"

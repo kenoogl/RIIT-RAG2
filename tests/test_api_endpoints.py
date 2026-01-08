@@ -120,6 +120,25 @@ class MockDocumentProcessor:
     pass
 
 
+class MockConcurrencyManager:
+    """同時アクセス管理のモッククラス"""
+    
+    async def execute_with_concurrency_control(self, handler, *args, **kwargs):
+        # 直接ハンドラーを実行
+        return await handler(*args)
+    
+    def get_metrics(self):
+        return {
+            "total_requests": 10,
+            "completed_requests": 9,
+            "failed_requests": 1,
+            "success_rate": 0.9,
+            "average_processing_time": 0.5,
+            "queue_size": 0,
+            "active_connections": 2
+        }
+
+
 @pytest.fixture
 def client():
     """テスト用FastAPIクライアントを作成"""
@@ -130,7 +149,8 @@ def client():
         "chat_manager": MockChatManager(),
         "system_monitor": MockSystemMonitor(),
         "config_manager": MockConfigManager(),
-        "document_processor": MockDocumentProcessor()
+        "document_processor": MockDocumentProcessor(),
+        "concurrency_manager": MockConcurrencyManager()
     }
     
     config = {
@@ -143,13 +163,14 @@ def client():
     
     # 依存性注入のオーバーライド
     from genkai_rag.api.routes import (
-        get_rag_engine, get_llm_manager, get_chat_manager, get_system_monitor
+        get_rag_engine, get_llm_manager, get_chat_manager, get_system_monitor, get_concurrency_manager
     )
     
     app.dependency_overrides[get_rag_engine] = lambda: dependencies["rag_engine"]
     app.dependency_overrides[get_llm_manager] = lambda: dependencies["llm_manager"]
     app.dependency_overrides[get_chat_manager] = lambda: dependencies["chat_manager"]
     app.dependency_overrides[get_system_monitor] = lambda: dependencies["system_monitor"]
+    app.dependency_overrides[get_concurrency_manager] = lambda: dependencies["concurrency_manager"]
     
     return TestClient(app)
 
@@ -436,13 +457,15 @@ class TestAsyncEndpoints:
         # モックコンポーネントを作成
         rag_engine = MockRAGEngine()
         chat_manager = MockChatManager()
+        concurrency_manager = MockConcurrencyManager()
         
         # 非同期処理を実行
         response = await query_documents(
             request=request,
             background_tasks=background_tasks,
             rag_engine=rag_engine,
-            chat_manager=chat_manager
+            chat_manager=chat_manager,
+            concurrency_manager=concurrency_manager
         )
         
         # レスポンスの検証

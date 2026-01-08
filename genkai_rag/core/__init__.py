@@ -8,6 +8,7 @@ from .chat_manager import ChatManager
 from .config_manager import ConfigManager, ConfigChange
 from .system_monitor import SystemMonitor, SystemStatus, AlertThreshold
 from .error_recovery import ErrorRecoveryManager, ErrorType, ErrorSeverity, ErrorContext, RetryConfig
+from .concurrency_manager import ConcurrencyManager, ConcurrencyConfig, RateLimiter, ConnectionPool
 
 __all__ = [
     "WebScraper", 
@@ -26,5 +27,9 @@ __all__ = [
     "ErrorType",
     "ErrorSeverity", 
     "ErrorContext",
-    "RetryConfig"
+    "RetryConfig",
+    "ConcurrencyManager",
+    "ConcurrencyConfig",
+    "RateLimiter",
+    "ConnectionPool"
 ]

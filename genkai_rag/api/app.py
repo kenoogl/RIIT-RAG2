@@ -24,6 +24,7 @@ from ..core.system_monitor import SystemMonitor
 from ..core.processor import DocumentProcessor
 from ..core.error_recovery import ErrorRecoveryManager
 from ..core.scraper import WebScraper
+from ..core.concurrency_manager import ConcurrencyManager, ConcurrencyConfig
 from .middleware import LoggingMiddleware, ErrorHandlingMiddleware
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class AppState:
         self.document_processor: DocumentProcessor = self.dependencies.get("document_processor")
         self.error_recovery_manager: ErrorRecoveryManager = self.dependencies.get("error_recovery_manager")
         self.web_scraper: WebScraper = self.dependencies.get("web_scraper")
+        self.concurrency_manager: ConcurrencyManager = self.dependencies.get("concurrency_manager")
         
         # テンプレートエンジン
         self.templates: Jinja2Templates = None
@@ -70,6 +72,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if not app_state or not app_state.dependencies:
             await _initialize_legacy_components()
         
+        # ConcurrencyManagerの開始
+        if app_state.concurrency_manager:
+            await app_state.concurrency_manager.start()
+        
         # テンプレートエンジンの初期化
         app_state.templates = Jinja2Templates(directory="genkai_rag/templates")
         
@@ -88,6 +94,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     finally:
         # 終了時のクリーンアップ
         logger.info("Shutting down Genkai RAG System...")
+        
+        if app_state and app_state.concurrency_manager:
+            await app_state.concurrency_manager.stop()
         
         if app_state and app_state.system_monitor:
             app_state.system_monitor.stop_monitoring()
@@ -133,6 +142,22 @@ async def _initialize_legacy_components():
         chat_config = config.get("chat", {})
         app_state.chat_manager = ChatManager(
             max_history_size=chat_config.get("max_history_size", 50)
+        )
+    
+    # 同時アクセス管理の初期化
+    if not app_state.concurrency_manager:
+        concurrency_config = config.get("concurrency", {})
+        app_state.concurrency_manager = ConcurrencyManager(
+            ConcurrencyConfig(
+                max_concurrent_requests=concurrency_config.get("max_concurrent_requests", 10),
+                max_queue_size=concurrency_config.get("max_queue_size", 100),
+                request_timeout=concurrency_config.get("request_timeout", 30.0),
+                rate_limit_per_minute=concurrency_config.get("rate_limit_per_minute", 60),
+                enable_request_queuing=concurrency_config.get("enable_request_queuing", True),
+                enable_rate_limiting=concurrency_config.get("enable_rate_limiting", True),
+                connection_pool_size=concurrency_config.get("connection_pool_size", 20),
+                connection_pool_timeout=concurrency_config.get("connection_pool_timeout", 5.0)
+            )
         )
 
 
@@ -259,7 +284,8 @@ def create_app(dependencies: Optional[Dict[str, Any]] = None, config: Optional[D
                     "system_monitor": app_state.system_monitor is not None,
                     "error_recovery_manager": app_state.error_recovery_manager is not None,
                     "web_scraper": app_state.web_scraper is not None,
-                    "document_processor": app_state.document_processor is not None
+                    "document_processor": app_state.document_processor is not None,
+                    "concurrency_manager": app_state.concurrency_manager is not None
                 }
             }
             

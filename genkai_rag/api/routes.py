@@ -23,6 +23,7 @@ from ..core.rag_engine import RAGEngine
 from ..core.llm_manager import LLMManager
 from ..core.chat_manager import ChatManager
 from ..core.system_monitor import SystemMonitor
+from ..core.concurrency_manager import ConcurrencyManager
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +60,20 @@ def get_system_monitor() -> SystemMonitor:
     return get_app_state().system_monitor
 
 
+def get_concurrency_manager() -> ConcurrencyManager:
+    """同時アクセス管理を取得"""
+    from .app import get_app_state
+    return get_app_state().concurrency_manager
+
+
 # 質問応答API
 @query_router.post("/query", response_model=QueryResponse)
 async def query_documents(
     request: QueryRequest,
     background_tasks: BackgroundTasks,
     rag_engine: RAGEngine = Depends(get_rag_engine),
-    chat_manager: ChatManager = Depends(get_chat_manager)
+    chat_manager: ChatManager = Depends(get_chat_manager),
+    concurrency_manager: ConcurrencyManager = Depends(get_concurrency_manager)
 ) -> QueryResponse:
     """
     文書に対する質問応答を実行
@@ -75,6 +83,7 @@ async def query_documents(
         background_tasks: バックグラウンドタスク
         rag_engine: RAGエンジン
         chat_manager: チャットマネージャー
+        concurrency_manager: 同時アクセス管理
         
     Returns:
         質問応答レスポンス
@@ -87,19 +96,19 @@ async def query_documents(
     try:
         logger.info(f"Processing query for session {request.session_id}: {request.question[:100]}...")
         
-        # 会話履歴を取得（必要に応じて）
-        context_messages = []
-        if request.include_history:
-            history = chat_manager.get_chat_history(request.session_id, limit=5)
-            context_messages = [msg.to_dict() for msg in history]
-        
-        # RAGエンジンで質問応答を実行
-        result = await rag_engine.query(
-            question=request.question,
-            model_name=request.model_name,
-            max_sources=request.max_sources,
-            context_messages=context_messages
-        )
+        # 同時アクセス制御付きでクエリを実行
+        if concurrency_manager:
+            result = await concurrency_manager.execute_with_concurrency_control(
+                _process_query_internal,
+                request,
+                rag_engine,
+                chat_manager,
+                request_id=f"query-{request.session_id}-{int(time.time() * 1000)}",
+                client_id=request.session_id
+            )
+        else:
+            # フォールバック: 直接実行
+            result = await _process_query_internal(request, rag_engine, chat_manager)
         
         # 処理時間を計算
         processing_time = time.time() - start_time
@@ -137,6 +146,37 @@ async def query_documents(
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+async def _process_query_internal(
+    request: QueryRequest,
+    rag_engine: RAGEngine,
+    chat_manager: ChatManager
+) -> Any:
+    """
+    内部クエリ処理関数
+    
+    Args:
+        request: 質問リクエスト
+        rag_engine: RAGエンジン
+        chat_manager: チャットマネージャー
+        
+    Returns:
+        RAGエンジンの実行結果
+    """
+    # 会話履歴を取得（必要に応じて）
+    context_messages = []
+    if request.include_history:
+        history = chat_manager.get_chat_history(request.session_id, limit=5)
+        context_messages = [msg.to_dict() for msg in history]
+    
+    # RAGエンジンで質問応答を実行
+    return await rag_engine.query(
+        question=request.question,
+        model_name=request.model_name,
+        max_sources=request.max_sources,
+        context_messages=context_messages
+    )
 
 
 async def save_conversation_history(
@@ -381,7 +421,8 @@ async def list_chat_sessions(
 async def get_system_status(
     system_monitor: SystemMonitor = Depends(get_system_monitor),
     llm_manager: LLMManager = Depends(get_llm_manager),
-    chat_manager: ChatManager = Depends(get_chat_manager)
+    chat_manager: ChatManager = Depends(get_chat_manager),
+    concurrency_manager: ConcurrencyManager = Depends(get_concurrency_manager)
 ) -> SystemStatusResponse:
     """
     システムステータスを取得
@@ -390,6 +431,7 @@ async def get_system_status(
         system_monitor: システムモニター
         llm_manager: LLMマネージャー
         chat_manager: チャットマネージャー
+        concurrency_manager: 同時アクセス管理
         
     Returns:
         システムステータスレスポンス
@@ -404,6 +446,11 @@ async def get_system_status(
         # 現在のモデルを取得
         current_model = llm_manager.get_current_model()
         
+        # 同時アクセスメトリクスを取得
+        concurrency_metrics = {}
+        if concurrency_manager:
+            concurrency_metrics = concurrency_manager.get_metrics()
+        
         return SystemStatusResponse(
             status="healthy",  # TODO: 実際のヘルスチェックロジックを実装
             version="1.0.0",
@@ -411,8 +458,9 @@ async def get_system_status(
             memory_usage_mb=status.memory_usage_mb,
             disk_usage_mb=status.disk_usage_mb,
             active_sessions=active_sessions,
-            total_queries=0,  # TODO: クエリカウンターを実装
-            current_model=current_model
+            total_queries=concurrency_metrics.get("total_requests", 0),
+            current_model=current_model,
+            concurrency_metrics=concurrency_metrics
         )
         
     except Exception as e:
