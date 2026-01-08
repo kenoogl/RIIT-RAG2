@@ -64,8 +64,10 @@ def mock_app_state():
         
         # チャットマネージャーのモック
         mock_chat_manager = Mock()
-        mock_chat_manager.get_history.return_value = []
-        mock_chat_manager.get_message_count.return_value = 0
+        mock_chat_manager.get_chat_history.return_value = []
+        mock_session_info = Mock()
+        mock_session_info.message_count = 0
+        mock_chat_manager.get_session_info.return_value = mock_session_info
         mock_chat_manager.list_sessions.return_value = ["session1", "session2"]
         mock_chat_manager.save_message = Mock()
         mock_chat_manager.clear_history = Mock()
@@ -115,7 +117,23 @@ def mock_app_state():
 @pytest.fixture
 def client(mock_app_state):
     """テスト用FastAPIクライアントを作成"""
-    app = create_app()
+    # 依存性注入用の辞書を作成
+    dependencies = {
+        "rag_engine": mock_app_state.rag_engine,
+        "llm_manager": mock_app_state.llm_manager,
+        "chat_manager": mock_app_state.chat_manager,
+        "system_monitor": mock_app_state.system_monitor,
+        "config_manager": mock_app_state.config_manager,
+        "document_processor": mock_app_state.document_processor
+    }
+    
+    config = {
+        "cors_origins": ["*"],
+        "allowed_hosts": ["*"],
+        "debug": True
+    }
+    
+    app = create_app(dependencies=dependencies, config=config)
     return TestClient(app)
 
 

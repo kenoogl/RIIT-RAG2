@@ -89,7 +89,7 @@ async def query_documents(
         # 会話履歴を取得（必要に応じて）
         context_messages = []
         if request.include_history:
-            history = chat_manager.get_history(request.session_id, limit=5)
+            history = chat_manager.get_chat_history(request.session_id, limit=5)
             context_messages = [msg.to_dict() for msg in history]
         
         # RAGエンジンで質問応答を実行
@@ -158,7 +158,7 @@ async def save_conversation_history(
     try:
         # ユーザーメッセージを保存
         user_message = create_user_message(session_id, question)
-        chat_manager.save_message(user_message)
+        chat_manager.save_message(request.session_id, user_message)
         
         # アシスタントメッセージを保存
         assistant_message = create_assistant_message(
@@ -167,7 +167,7 @@ async def save_conversation_history(
             [source.url for source in sources]
         )
         assistant_message.metadata = {"sources": [source.to_dict() for source in sources]}
-        chat_manager.save_message(assistant_message)
+        chat_manager.save_message(request.session_id, assistant_message)
         
     except Exception as e:
         logger.error(f"Failed to save conversation history: {str(e)}")
@@ -297,8 +297,11 @@ async def get_chat_history(
     """
     try:
         # 履歴を取得
-        messages = chat_manager.get_history(session_id, limit=limit)
-        total_count = chat_manager.get_message_count(session_id)
+        messages = chat_manager.get_chat_history(session_id, limit=limit)
+        
+        # セッション情報を取得してメッセージ数を確認
+        session_info = chat_manager.get_session_info(session_id)
+        total_count = session_info.message_count if session_info else 0
         
         # メッセージを辞書形式に変換
         message_dicts = []

@@ -56,8 +56,10 @@ def test_client():
         mock_llm_manager.check_model_health = AsyncMock(return_value=True)
         
         mock_chat_manager = Mock()
-        mock_chat_manager.get_history.return_value = []  # 同期メソッドとして設定
-        mock_chat_manager.get_message_count.return_value = 0  # 同期メソッドとして設定
+        mock_chat_manager.get_chat_history.return_value = []  # 同期メソッドとして設定
+        mock_session_info = Mock()
+        mock_session_info.message_count = 0
+        mock_chat_manager.get_session_info.return_value = mock_session_info
         mock_chat_manager.list_sessions.return_value = ["session1"]  # 同期メソッドとして設定
         mock_chat_manager.save_message = Mock()
         mock_chat_manager.clear_history = Mock()

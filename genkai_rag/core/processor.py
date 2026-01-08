@@ -290,6 +290,15 @@ class DocumentProcessor:
             self.logger.warning(f"インデックス読み込みエラー: {e}")
             self.index = None
     
+    def get_index(self) -> Optional[VectorStoreIndex]:
+        """
+        現在のインデックスを取得
+        
+        Returns:
+            VectorStoreIndexオブジェクト（存在しない場合はNone）
+        """
+        return self.index
+    
     def get_index_statistics(self) -> Dict[str, Any]:
         """
         インデックスの統計情報を取得

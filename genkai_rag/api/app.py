@@ -2,11 +2,12 @@
 FastAPIアプリケーションのメインファイル
 
 このモジュールは、FastAPIアプリケーションの作成と設定を行います。
+依存性注入によるコンポーネント管理をサポートします。
 """
 
 import logging
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Dict, Any, Optional
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +22,8 @@ from ..core.llm_manager import LLMManager
 from ..core.chat_manager import ChatManager
 from ..core.system_monitor import SystemMonitor
 from ..core.processor import DocumentProcessor
+from ..core.error_recovery import ErrorRecoveryManager
+from ..core.scraper import WebScraper
 from .middleware import LoggingMiddleware, ErrorHandlingMiddleware
 
 logger = logging.getLogger(__name__)
@@ -29,18 +32,31 @@ logger = logging.getLogger(__name__)
 class AppState:
     """アプリケーション状態管理クラス"""
     
-    def __init__(self):
-        self.config_manager: ConfigManager = None
-        self.rag_engine: RAGEngine = None
-        self.llm_manager: LLMManager = None
-        self.chat_manager: ChatManager = None
-        self.system_monitor: SystemMonitor = None
-        self.document_processor: DocumentProcessor = None
+    def __init__(self, dependencies: Optional[Dict[str, Any]] = None):
+        """
+        アプリケーション状態を初期化
+        
+        Args:
+            dependencies: 依存性注入用のコンポーネント辞書
+        """
+        self.dependencies = dependencies or {}
+        
+        # 依存性注入されたコンポーネントを設定
+        self.config_manager: ConfigManager = self.dependencies.get("config_manager")
+        self.rag_engine: RAGEngine = self.dependencies.get("rag_engine")
+        self.llm_manager: LLMManager = self.dependencies.get("llm_manager")
+        self.chat_manager: ChatManager = self.dependencies.get("chat_manager")
+        self.system_monitor: SystemMonitor = self.dependencies.get("system_monitor")
+        self.document_processor: DocumentProcessor = self.dependencies.get("document_processor")
+        self.error_recovery_manager: ErrorRecoveryManager = self.dependencies.get("error_recovery_manager")
+        self.web_scraper: WebScraper = self.dependencies.get("web_scraper")
+        
+        # テンプレートエンジン
         self.templates: Jinja2Templates = None
 
 
 # グローバル状態インスタンス
-app_state = AppState()
+app_state: Optional[AppState] = None
 
 
 @asynccontextmanager
@@ -50,34 +66,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting Genkai RAG System...")
     
     try:
-        # 設定管理の初期化
-        app_state.config_manager = ConfigManager()
-        config = app_state.config_manager.load_config()
-        
-        # システム監視の初期化
-        app_state.system_monitor = SystemMonitor()
-        app_state.system_monitor.start_monitoring()
-        
-        # LLMマネージャーの初期化
-        llm_config = config.get("llm", {})
-        app_state.llm_manager = LLMManager(
-            ollama_url=llm_config.get("ollama_url", "http://localhost:11434")
-        )
-        
-        # 文書プロセッサーの初期化
-        app_state.document_processor = DocumentProcessor()
-        
-        # RAGエンジンの初期化
-        app_state.rag_engine = RAGEngine(
-            llm_manager=app_state.llm_manager,
-            document_processor=app_state.document_processor
-        )
-        
-        # チャットマネージャーの初期化
-        chat_config = config.get("chat", {})
-        app_state.chat_manager = ChatManager(
-            max_history_size=chat_config.get("max_history_size", 50)
-        )
+        # 依存性注入されたコンポーネントがない場合は従来の初期化を実行
+        if not app_state or not app_state.dependencies:
+            await _initialize_legacy_components()
         
         # テンプレートエンジンの初期化
         app_state.templates = Jinja2Templates(directory="genkai_rag/templates")
@@ -88,20 +79,88 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         
     except Exception as e:
         logger.error(f"Failed to start application: {e}")
+        if app_state and app_state.error_recovery_manager:
+            app_state.error_recovery_manager.handle_validation_error(
+                e, {}, "application_startup"
+            )
         raise
     
     finally:
         # 終了時のクリーンアップ
         logger.info("Shutting down Genkai RAG System...")
         
-        if app_state.system_monitor:
+        if app_state and app_state.system_monitor:
             app_state.system_monitor.stop_monitoring()
         
         logger.info("Genkai RAG System shutdown complete")
 
 
-def create_app() -> FastAPI:
-    """FastAPIアプリケーションを作成"""
+async def _initialize_legacy_components():
+    """従来の方式でコンポーネントを初期化（後方互換性のため）"""
+    logger.info("Initializing components in legacy mode...")
+    
+    # 設定管理の初期化
+    if not app_state.config_manager:
+        app_state.config_manager = ConfigManager()
+    
+    config = app_state.config_manager.load_config()
+    
+    # システム監視の初期化
+    if not app_state.system_monitor:
+        app_state.system_monitor = SystemMonitor()
+        app_state.system_monitor.start_monitoring()
+    
+    # LLMマネージャーの初期化
+    if not app_state.llm_manager:
+        llm_config = config.get("llm", {})
+        app_state.llm_manager = LLMManager(
+            ollama_url=llm_config.get("ollama_url", "http://localhost:11434")
+        )
+    
+    # 文書プロセッサーの初期化
+    if not app_state.document_processor:
+        app_state.document_processor = DocumentProcessor()
+    
+    # RAGエンジンの初期化
+    if not app_state.rag_engine:
+        app_state.rag_engine = RAGEngine(
+            llm_manager=app_state.llm_manager,
+            document_processor=app_state.document_processor
+        )
+    
+    # チャットマネージャーの初期化
+    if not app_state.chat_manager:
+        chat_config = config.get("chat", {})
+        app_state.chat_manager = ChatManager(
+            max_history_size=chat_config.get("max_history_size", 50)
+        )
+
+
+def create_app(dependencies: Optional[Dict[str, Any]] = None, config: Optional[Dict[str, Any]] = None) -> FastAPI:
+    """
+    FastAPIアプリケーションを作成
+    
+    Args:
+        dependencies: 依存性注入用のコンポーネント辞書
+        config: Web設定
+        
+    Returns:
+        設定済みのFastAPIアプリケーション
+    """
+    global app_state
+    
+    # アプリケーション状態を初期化
+    app_state = AppState(dependencies)
+    
+    # 設定の取得
+    web_config = config or {}
+    if not web_config and app_state.config_manager:
+        try:
+            full_config = app_state.config_manager.load_config()
+            web_config = full_config.get("web", {})
+        except Exception as e:
+            logger.warning(f"Failed to load web config: {e}")
+            web_config = {}
     
     # FastAPIアプリケーションの作成
     app = FastAPI(
@@ -110,13 +169,13 @@ def create_app() -> FastAPI:
         version="1.0.0",
         docs_url="/api/docs",
         redoc_url="/api/redoc",
-        lifespan=lifespan
+        lifespan=lifespan,
+        debug=web_config.get("debug", False)
     )
     
-    # 設定の読み込み
-    config_manager = ConfigManager()
-    config = config_manager.load_config()
-    web_config = config.get("web", {})
+    # 依存性注入の設定
+    app.state.dependencies = dependencies or {}
+    app.state.app_state = app_state
     
     # CORS設定
     cors_origins = web_config.get("cors_origins", ["*"])
@@ -148,12 +207,18 @@ def create_app() -> FastAPI:
     app.include_router(system_router, prefix="/api", tags=["system"])
     
     # 静的ファイルの設定
-    app.mount("/static", StaticFiles(directory="genkai_rag/static"), name="static")
+    try:
+        app.mount("/static", StaticFiles(directory="genkai_rag/static"), name="static")
+    except Exception as e:
+        logger.warning(f"Failed to mount static files: {e}")
     
     # ルートエンドポイント（Webインターフェイス）
     @app.get("/")
     async def root(request: Request):
         """メインのWebインターフェイス"""
+        if not app_state.templates:
+            raise HTTPException(status_code=503, detail="Templates not initialized")
+        
         return app_state.templates.TemplateResponse(
             "index.html", 
             {"request": request, "title": "玄界RAGシステム"}
@@ -167,25 +232,45 @@ def create_app() -> FastAPI:
             # 基本的なヘルスチェック
             status = {
                 "status": "healthy",
-                "timestamp": app_state.system_monitor.get_system_status().timestamp.isoformat(),
                 "components": {
                     "config_manager": app_state.config_manager is not None,
                     "rag_engine": app_state.rag_engine is not None,
                     "llm_manager": app_state.llm_manager is not None,
                     "chat_manager": app_state.chat_manager is not None,
-                    "system_monitor": app_state.system_monitor is not None
+                    "system_monitor": app_state.system_monitor is not None,
+                    "error_recovery_manager": app_state.error_recovery_manager is not None,
+                    "web_scraper": app_state.web_scraper is not None,
+                    "document_processor": app_state.document_processor is not None
                 }
             }
             
+            # システム監視情報を追加
+            if app_state.system_monitor:
+                system_status = app_state.system_monitor.get_system_status()
+                status["timestamp"] = system_status.timestamp.isoformat()
+                status["system_metrics"] = {
+                    "memory_usage": system_status.memory_usage,
+                    "disk_usage": system_status.disk_usage,
+                    "cpu_usage": system_status.cpu_usage
+                }
+            
             # LLMの健全性チェック
             if app_state.llm_manager:
-                llm_health = await app_state.llm_manager.check_model_health()
-                status["components"]["llm_health"] = llm_health
+                try:
+                    llm_health = await app_state.llm_manager.check_model_health()
+                    status["components"]["llm_health"] = llm_health
+                except Exception as e:
+                    logger.warning(f"LLM health check failed: {e}")
+                    status["components"]["llm_health"] = False
             
             return status
             
         except Exception as e:
             logger.error(f"Health check failed: {e}")
+            if app_state.error_recovery_manager:
+                app_state.error_recovery_manager.handle_validation_error(
+                    e, {}, "health_check"
+                )
             raise HTTPException(status_code=503, detail="Service unavailable")
     
     # グローバル例外ハンドラー
@@ -193,6 +278,15 @@ def create_app() -> FastAPI:
     async def global_exception_handler(request: Request, exc: Exception):
         """グローバル例外ハンドラー"""
         logger.error(f"Unhandled exception: {exc}", exc_info=True)
+        
+        # エラー回復管理でログ記録
+        if app_state.error_recovery_manager:
+            try:
+                app_state.error_recovery_manager.handle_validation_error(
+                    exc, {"path": str(request.url.path)}, "global_exception"
+                )
+            except Exception as recovery_error:
+                logger.error(f"Error recovery failed: {recovery_error}")
         
         return JSONResponse(
             status_code=500,
