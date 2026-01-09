@@ -131,6 +131,12 @@ cp config/default.yaml config/local.yaml
 
 ## 使用方法
 
+### WebUI（推奨）
+
+ブラウザで http://localhost:8000 にアクセスして、直感的なWebインターフェイスを使用できます。
+
+詳細な使い方は **[ユーザーガイド](docs/user-guide.md)** をご覧ください。
+
 ### 開発モード
 
 ```bash
