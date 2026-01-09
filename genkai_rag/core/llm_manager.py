@@ -16,14 +16,7 @@ from ..utils.config import ConfigManager
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ModelInfo:
-    """LLMモデル情報"""
-    name: str
-    size: str
-    modified_at: datetime
-    digest: str
-    details: Dict[str, Any]
+from ..models.api import ModelInfo
 
 
 class LLMManager:
@@ -82,12 +75,31 @@ class LLMManager:
             models = []
             
             for model_data in data.get("models", []):
+                # 日時文字列を安全に処理
+                modified_at_str = model_data.get("modified_at", "1970-01-01T00:00:00Z")
+                try:
+                    # マイクロ秒の精度を調整
+                    if "." in modified_at_str and "+" in modified_at_str:
+                        # マイクロ秒部分を6桁に制限
+                        parts = modified_at_str.split(".")
+                        if len(parts) == 2:
+                            microsec_and_tz = parts[1]
+                            if "+" in microsec_and_tz:
+                                microsec, tz = microsec_and_tz.split("+", 1)
+                                microsec = microsec[:6].ljust(6, '0')  # 6桁に調整
+                                modified_at_str = f"{parts[0]}.{microsec}+{tz}"
+                    
+                    modified_at_str = modified_at_str.replace("Z", "+00:00")
+                    modified_at = datetime.fromisoformat(modified_at_str)
+                except (ValueError, AttributeError) as e:
+                    logger.warning(f"Failed to parse modified_at '{modified_at_str}': {e}")
+                    modified_at = datetime.now()
+                
                 model_info = ModelInfo(
                     name=model_data["name"],
+                    display_name=model_data["name"],
                     size=model_data.get("size", "unknown"),
-                    modified_at=datetime.fromisoformat(
-                        model_data.get("modified_at", "1970-01-01T00:00:00Z").replace("Z", "+00:00")
-                    ),
+                    modified_at=modified_at,
                     digest=model_data.get("digest", ""),
                     details=model_data.get("details", {})
                 )

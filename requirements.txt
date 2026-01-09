@@ -11,7 +11,7 @@ uvicorn[standard]==0.27.0
 python-multipart==0.0.6
 
 # Web Scraping
-beautifulsoup4==4.12.2
+beautifulsoup4>=4.12.3
 requests==2.31.0
 lxml==4.9.4
 chardet==5.2.0

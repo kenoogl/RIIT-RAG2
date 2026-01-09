@@ -17,8 +17,8 @@ from llama_index.core.postprocessor import SimilarityPostprocessor
 from llama_index.core.schema import NodeWithScore
 from llama_index.llms.ollama import Ollama
 
-from ..models.document import Document, DocumentSource
-from ..models.chat import Message
+from ..models.document import Document, DocumentSourceInfo
+from ..models.chat import ChatMessage
 from .llm_manager import LLMManager
 from .processor import DocumentProcessor
 
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class RAGResponse:
     """RAG推論結果"""
     answer: str
-    sources: List[DocumentSource]
+    sources: List[DocumentSourceInfo]
     processing_time: float
     model_used: str
     retrieval_score: float
@@ -155,7 +155,7 @@ class RAGEngine:
     def query(
         self,
         question: str,
-        chat_history: Optional[List[Message]] = None,
+        chat_history: Optional[List[ChatMessage]] = None,
         model_name: Optional[str] = None
     ) -> RAGResponse:
         """
@@ -313,7 +313,7 @@ class RAGEngine:
         self,
         question: str,
         context_docs: List[NodeWithScore],
-        chat_history: Optional[List[Message]] = None,
+        chat_history: Optional[List[ChatMessage]] = None,
         model_name: Optional[str] = None
     ) -> str:
         """
@@ -346,7 +346,7 @@ class RAGEngine:
             logger.error(f"Response generation failed: {e}")
             return f"申し訳ございませんが、回答の生成中にエラーが発生しました: {str(e)}"
     
-    def _build_contextual_query(self, question: str, chat_history: Optional[List[Message]]) -> str:
+    def _build_contextual_query(self, question: str, chat_history: Optional[List[ChatMessage]]) -> str:
         """
         会話履歴を考慮したクエリを構築
         
@@ -384,7 +384,7 @@ class RAGEngine:
         self,
         question: str,
         context_docs: List[NodeWithScore],
-        chat_history: Optional[List[Message]] = None
+        chat_history: Optional[List[ChatMessage]] = None
     ) -> str:
         """
         回答生成用のプロンプトを構築
@@ -450,22 +450,22 @@ class RAGEngine:
         
         return prompt
     
-    def _convert_to_document_sources(self, doc_nodes: List[NodeWithScore]) -> List[DocumentSource]:
+    def _convert_to_document_sources(self, doc_nodes: List[NodeWithScore]) -> List[DocumentSourceInfo]:
         """
-        文書ノードをDocumentSourceに変換
+        文書ノードをDocumentSourceInfoに変換
         
         Args:
             doc_nodes: 文書ノードのリスト
             
         Returns:
-            DocumentSourceのリスト
+            DocumentSourceInfoのリスト
         """
         sources = []
         
         for doc_node in doc_nodes:
             metadata = doc_node.node.metadata
             
-            source = DocumentSource(
+            source = DocumentSourceInfo(
                 title=metadata.get("title", "Unknown Title"),
                 url=metadata.get("url", ""),
                 section=metadata.get("section", ""),

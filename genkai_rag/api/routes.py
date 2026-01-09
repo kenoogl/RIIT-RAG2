@@ -12,12 +12,13 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from ..models.api import (
-    QueryRequest, QueryResponse, StatusResponse,
+    StatusResponse,
     ModelInfo, ModelListResponse, ModelSwitchRequest,
     ChatHistoryRequest, ChatHistoryResponse,
     SystemStatusResponse, ErrorResponse,
     create_success_response, create_error_response, create_api_error_response
 )
+from ..models.chat import QueryRequest, QueryResponse
 from ..models.chat import Message, create_user_message, create_assistant_message
 from ..core.rag_engine import RAGEngine
 from ..core.llm_manager import LLMManager
@@ -118,8 +119,8 @@ async def query_documents(
         
         # レスポンスを作成
         response = QueryResponse(
-            answer=result.answer,
-            sources=getattr(result, "sources", []),
+            response=result.answer,
+            source_documents=getattr(result, "sources", []),
             processing_time=processing_time,
             model_used=model_used,
             session_id=request.session_id,
@@ -132,8 +133,8 @@ async def query_documents(
             chat_manager,
             request.session_id,
             request.question,
-            response.answer,
-            response.sources
+            response.response,
+            response.source_documents
         )
         
         logger.info(f"Query completed for session {request.session_id} in {processing_time:.3f}s")
@@ -174,7 +175,7 @@ async def _process_query_internal(
     return rag_engine.query(
         question=request.question,
         chat_history=context_messages,
-        model_name=request.model_name
+        model_name=request.model_name or "llama3.2:1b"  # デフォルトモデルを指定
     )
 
 
@@ -239,8 +240,7 @@ async def list_models(
                 name=model_info.name,
                 display_name=model_info.name,
                 description=f"Size: {model_info.size}, Modified: {model_info.modified_at}",
-                is_available=True,
-                is_default=(model_info.name == current_model),
+                available=True,
                 parameters=model_info.details
             ))
         
@@ -496,14 +496,26 @@ async def get_system_status(
         return SystemStatusResponse(
             status="healthy",
             version="1.0.0",
-            uptime_seconds=uptime_seconds,
-            memory_usage_mb=memory_usage_mb,
-            disk_usage_mb=disk_usage_mb,
-            active_sessions=active_sessions,
-            total_queries=concurrency_metrics.get("total_requests", 0),
-            current_model=current_model,
-            concurrency_metrics=concurrency_metrics,
-            performance_stats=performance_stats
+            uptime=uptime_seconds,
+            components={
+                "llm_manager": True,
+                "document_processor": True,
+                "rag_engine": True,
+                "chat_manager": True,
+                "concurrency_manager": True
+            },
+            system_metrics={
+                "memory_usage_mb": memory_usage_mb,
+                "disk_usage_mb": disk_usage_mb,
+                "active_sessions": active_sessions
+            },
+            performance_metrics={
+                "total_queries": concurrency_metrics.get("total_requests", 0),
+                "current_model": current_model,
+                "concurrency_metrics": concurrency_metrics,
+                "performance_stats": performance_stats
+            },
+            error_statistics={}
         )
         
     except Exception as e:
@@ -594,7 +606,7 @@ async def health_check_detailed(
         system_status = system_monitor.get_system_status()
         
         # LLMの健全性をチェック
-        llm_health = await llm_manager.check_model_health()
+        llm_health = llm_manager.check_model_health()
         
         # チャットマネージャーの状態をチェック
         active_sessions = len(chat_manager.list_sessions())
