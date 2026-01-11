@@ -1,0 +1,43 @@
+nohup: 入力を無視します
+[nltk_data] Downloading package punkt_tab to /home/keno/RIIT-
+[nltk_data]     RAG2/venv/lib/python3.10/site-
+[nltk_data]     packages/llama_index/core/_static/nltk_cache...
+[nltk_data]   Package punkt_tab is already up-to-date!
+INFO:     Started server process [14424]
+INFO:     Waiting for application startup.
+{"asctime": "2026-01-09 17:02:53", "name": "genkai_rag.api.app", "levelname": "INFO", "message": "Starting Genkai RAG System..."}
+{"asctime": "2026-01-09 17:02:53", "name": "genkai_rag.api.app", "levelname": "INFO", "message": "Initializing components in legacy mode..."}
+{"asctime": "2026-01-09 17:02:53", "name": "genkai_rag.core.config_manager", "levelname": "INFO", "message": "ConfigManager initialized with config_dir: config"}
+{"asctime": "2026-01-09 17:02:53", "name": "genkai_rag.core.system_monitor", "levelname": "INFO", "message": "SystemMonitor initialized with log_dir: logs"}
+{"asctime": "2026-01-09 17:02:53", "name": "genkai_rag.core.system_monitor", "levelname": "INFO", "message": "Monitoring loop started"}
+{"asctime": "2026-01-09 17:02:53", "name": "genkai_rag.core.system_monitor", "levelname": "INFO", "message": "Background monitoring started"}
+{"asctime": "2026-01-09 17:02:53", "name": "genkai_rag.core.llm_manager", "levelname": "INFO", "message": "LLMManager initialized with Ollama URL: http://localhost:11434"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.processor", "levelname": "INFO", "message": "\u30a8\u30f3\u30d9\u30c7\u30a3\u30f3\u30b0\u30e2\u30c7\u30eb\u3092\u521d\u671f\u5316: intfloat/multilingual-e5-small"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.processor", "levelname": "INFO", "message": "\u65e2\u5b58\u306e\u30a4\u30f3\u30c7\u30c3\u30af\u30b9\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093\u3002\u65b0\u898f\u4f5c\u6210\u3057\u307e\u3059\u3002"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.llm_manager", "levelname": "INFO", "message": "Found 1 available models"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.rag_engine", "levelname": "INFO", "message": "Ollama LLM configured with model: llama3.2:1b, URL: http://localhost:11434"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.rag_engine", "levelname": "WARNING", "message": "No index available, query engine will be initialized later"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.rag_engine", "levelname": "INFO", "message": "RAGEngine initialized with similarity_threshold=0.7"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.chat_manager", "levelname": "INFO", "message": "ChatManager initialized with storage_dir=data/chat_history, max_history_size=50"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "ConcurrencyManager initialized with config: ConcurrencyConfig(max_concurrent_requests=10, max_queue_size=100, request_timeout=30.0, rate_limit_per_minute=60, enable_request_queuing=True, enable_rate_limiting=True, connection_pool_size=20, connection_pool_timeout=5.0)"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "ConcurrencyManager started"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.api.app", "levelname": "INFO", "message": "Genkai RAG System started successfully"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "Worker worker-0 started"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "Worker worker-1 started"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "Worker worker-2 started"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "Worker worker-3 started"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "Worker worker-4 started"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "Worker worker-5 started"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "Worker worker-6 started"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "Worker worker-7 started"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "Worker worker-8 started"}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "Worker worker-9 started"}
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+INFO:     Waiting for application shutdown.
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.api.app", "levelname": "INFO", "message": "Shutting down Genkai RAG System..."}
+{"asctime": "2026-01-09 17:02:58", "name": "genkai_rag.core.concurrency_manager", "levelname": "INFO", "message": "ConcurrencyManager stopped"}
+{"asctime": "2026-01-09 17:02:59", "name": "genkai_rag.core.system_monitor", "levelname": "INFO", "message": "Monitoring loop ended"}
+{"asctime": "2026-01-09 17:02:59", "name": "genkai_rag.core.system_monitor", "levelname": "INFO", "message": "Background monitoring stopped"}
+{"asctime": "2026-01-09 17:02:59", "name": "genkai_rag.api.app", "levelname": "INFO", "message": "Genkai RAG System shutdown complete"}
+INFO:     Application shutdown complete.

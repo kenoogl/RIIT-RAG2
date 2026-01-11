@@ -198,16 +198,12 @@ async def save_conversation_history(
     """
     try:
         # ユーザーメッセージを保存
-        user_message = create_user_message(session_id, question)
+        user_message = create_user_message(question)
         chat_manager.save_message(session_id, user_message)
         
         # アシスタントメッセージを保存
-        assistant_message = create_assistant_message(
-            session_id, 
-            answer, 
-            [source.url if hasattr(source, 'url') else str(source) for source in sources]
-        )
-        assistant_message.metadata = {"sources": [source.to_dict() if hasattr(source, 'to_dict') else source for source in sources]}
+        sources_metadata = {"sources": [source.to_dict() if hasattr(source, 'to_dict') else source for source in sources]}
+        assistant_message = create_assistant_message(answer, sources_metadata)
         chat_manager.save_message(session_id, assistant_message)
         
     except Exception as e:

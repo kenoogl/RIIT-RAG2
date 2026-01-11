@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JavaScript テスト</title>
+</head>
+<body>
+    <h1>JavaScript テスト</h1>
+    
+    <div>
+        <button id="submitBtn">テストボタン</button>
+    </div>
+    
+    <div id="messagesContainer" style="border: 1px solid #000; min-height: 200px; padding: 10px; margin: 20px 0;">
+        <p>メッセージがここに表示されます</p>
+    </div>
+    
+    <script>
+        console.log('Inline script loaded');
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded - inline script');
+            
+            const submitBtn = document.getElementById('submitBtn');
+            const messagesContainer = document.getElementById('messagesContainer');
+            
+            console.log('submitBtn:', submitBtn);
+            console.log('messagesContainer:', messagesContainer);
+            
+            if (submitBtn) {
+                submitBtn.addEventListener('click', function() {
+                    console.log('Button clicked!');
+                    
+                    if (messagesContainer) {
+                        const testDiv = document.createElement('div');
+                        testDiv.textContent = 'インラインスクリプトテスト - ' + new Date().toLocaleString();
+                        testDiv.style.padding = '5px';
+                        testDiv.style.backgroundColor = '#f0f0f0';
+                        testDiv.style.margin = '5px 0';
+                        messagesContainer.appendChild(testDiv);
+                        console.log('Message added via inline script');
+                    }
+                });
+            }
+        });
+    </script>
+    
+    <script src="/static/js/test.js?v={{ timestamp }}"></script>
+</body>
+</html>

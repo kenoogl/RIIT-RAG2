@@ -55,12 +55,26 @@ class ChatSession:
     messages: List[ChatMessage] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
+    last_activity: datetime = field(default_factory=datetime.now)
+    message_count: int = 0
     metadata: Dict[str, Any] = field(default_factory=dict)
     
     def add_message(self, message: ChatMessage):
         """メッセージを追加"""
         self.messages.append(message)
         self.updated_at = datetime.now()
+        self.last_activity = datetime.now()
+        self.message_count = len(self.messages)
+    
+    def update_activity(self):
+        """活動時刻を更新"""
+        self.last_activity = datetime.now()
+    
+    def is_expired(self, timeout_hours: int = 24) -> bool:
+        """セッションが期限切れかどうか判定"""
+        from datetime import timedelta
+        cutoff_time = datetime.now() - timedelta(hours=timeout_hours)
+        return self.last_activity < cutoff_time
     
     def get_recent_messages(self, limit: int = 10) -> List[ChatMessage]:
         """最近のメッセージを取得"""
@@ -73,6 +87,8 @@ class ChatSession:
             "messages": [msg.to_dict() for msg in self.messages],
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
+            "last_activity": self.last_activity.isoformat(),
+            "message_count": self.message_count,
             "metadata": self.metadata
         }
     
@@ -81,11 +97,18 @@ class ChatSession:
         """辞書からセッションオブジェクトを作成"""
         messages = [ChatMessage.from_dict(msg_data) for msg_data in data.get("messages", [])]
         
+        # 日時文字列を安全に変換
+        created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.now()
+        updated_at = datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.now()
+        last_activity = datetime.fromisoformat(data["last_activity"]) if data.get("last_activity") else datetime.now()
+        
         return cls(
             session_id=data["session_id"],
             messages=messages,
-            created_at=datetime.fromisoformat(data["created_at"]),
-            updated_at=datetime.fromisoformat(data["updated_at"]),
+            created_at=created_at,
+            updated_at=updated_at,
+            last_activity=last_activity,
+            message_count=data.get("message_count", len(messages)),
             metadata=data.get("metadata", {})
         )
 

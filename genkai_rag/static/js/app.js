@@ -2,6 +2,8 @@
  * 玄界RAGシステム フロントエンドJavaScript
  */
 
+console.log('app.js loaded successfully');
+
 class GenkaiRAGApp {
     constructor() {
         this.sessionId = this.generateSessionId();
@@ -20,6 +22,8 @@ class GenkaiRAGApp {
      * DOM要素を初期化
      */
     initializeElements() {
+        console.log('Initializing DOM elements...');
+        
         // フォーム要素
         this.questionInput = document.getElementById('questionInput');
         this.submitBtn = document.getElementById('submitBtn');
@@ -45,6 +49,17 @@ class GenkaiRAGApp {
         this.errorMessage = document.getElementById('errorMessage');
         this.closeErrorModal = document.getElementById('closeErrorModal');
         this.errorOkBtn = document.getElementById('errorOkBtn');
+        
+        // 重要な要素の存在確認
+        console.log('DOM elements check:');
+        console.log('questionInput:', !!this.questionInput);
+        console.log('submitBtn:', !!this.submitBtn);
+        console.log('messagesContainer:', !!this.messagesContainer);
+        console.log('messagesContainer element:', this.messagesContainer);
+        
+        if (!this.messagesContainer) {
+            console.error('CRITICAL: messagesContainer not found!');
+        }
     }
     
     /**
@@ -278,7 +293,10 @@ class GenkaiRAGApp {
      * 質問を送信
      */
     async submitQuery() {
+        console.log('submitQuery called');
         const question = this.questionInput.value.trim();
+        console.log('Question:', question);
+        
         if (!question) {
             this.showError('質問を入力してください');
             this.questionInput.focus();
@@ -286,13 +304,16 @@ class GenkaiRAGApp {
         }
         
         if (this.isProcessing) {
+            console.log('Already processing, ignoring request');
             return;
         }
         
+        console.log('Starting query processing...');
         this.setProcessingState(true);
         
         try {
             // ユーザーメッセージを即座に表示
+            console.log('Adding user message to UI');
             this.addMessage('user', question);
             
             // APIリクエストを送信
@@ -304,6 +325,8 @@ class GenkaiRAGApp {
                 include_history: this.includeHistoryCheckbox.checked
             };
             
+            console.log('Sending API request:', requestData);
+            
             const response = await fetch('/api/query', {
                 method: 'POST',
                 headers: {
@@ -312,15 +335,22 @@ class GenkaiRAGApp {
                 body: JSON.stringify(requestData)
             });
             
+            console.log('API response status:', response.status);
+            console.log('API response headers:', Object.fromEntries(response.headers.entries()));
+            
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
             }
             
             const data = await response.json();
+            console.log('API response data:', data);
+            console.log('Response text length:', data.response ? data.response.length : 'undefined');
+            console.log('Source documents count:', data.source_documents ? data.source_documents.length : 'undefined');
             
             // アシスタントの回答を表示
-            this.addMessage('assistant', data.answer, data.sources, {
+            console.log('Adding assistant message to UI');
+            this.addMessage('assistant', data.response, data.source_documents, {
                 processing_time: data.processing_time,
                 model_used: data.model_used
             });
@@ -344,6 +374,7 @@ class GenkaiRAGApp {
             this.announceToScreenReader('エラーが発生しました。もう一度お試しください。');
             
         } finally {
+            console.log('Query processing complete, resetting state');
             this.setProcessingState(false);
         }
     }
@@ -386,8 +417,24 @@ class GenkaiRAGApp {
      * メッセージを追加
      */
     addMessage(role, content, sources = [], metadata = {}) {
+        console.log('addMessage called:', { 
+            role, 
+            contentLength: content ? content.length : 0,
+            contentPreview: content ? content.substring(0, 100) : 'undefined', 
+            sourcesCount: sources ? sources.length : 0,
+            metadata 
+        });
+        
+        if (!this.messagesContainer) {
+            console.error('messagesContainer not found!');
+            return;
+        }
+        
+        console.log('messagesContainer found:', this.messagesContainer);
+        
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${role}`;
+        console.log('Created messageDiv with class:', messageDiv.className);
         
         const headerDiv = document.createElement('div');
         headerDiv.className = 'message-header';
@@ -406,12 +453,14 @@ class GenkaiRAGApp {
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
         contentDiv.textContent = content;
+        console.log('Content set to contentDiv:', contentDiv.textContent.substring(0, 100));
         
         messageDiv.appendChild(headerDiv);
         messageDiv.appendChild(contentDiv);
         
         // 出典情報を追加
         if (sources && sources.length > 0) {
+            console.log('Adding sources:', sources);
             const sourcesDiv = document.createElement('div');
             sourcesDiv.className = 'message-sources';
             
@@ -458,10 +507,17 @@ class GenkaiRAGApp {
             messageDiv.appendChild(metaDiv);
         }
         
+        console.log('About to append messageDiv to container');
+        console.log('Container children count before:', this.messagesContainer.children.length);
+        
         this.messagesContainer.appendChild(messageDiv);
+        
+        console.log('Container children count after:', this.messagesContainer.children.length);
+        console.log('MessageDiv appended successfully');
         
         // スクロールを最下部に移動
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+        console.log('Scrolled to bottom');
     }
     
     /**
@@ -592,5 +648,20 @@ class GenkaiRAGApp {
 
 // アプリケーションを初期化
 document.addEventListener('DOMContentLoaded', () => {
-    window.genkaiApp = new GenkaiRAGApp();
+    console.log('DOM loaded, initializing GenkaiRAGApp...');
+    console.log('Document ready state:', document.readyState);
+    
+    // DOM要素の存在確認
+    const messagesContainer = document.getElementById('messagesContainer');
+    console.log('messagesContainer found during init:', !!messagesContainer);
+    console.log('messagesContainer element during init:', messagesContainer);
+    
+    try {
+        window.genkaiApp = new GenkaiRAGApp();
+        console.log('GenkaiRAGApp initialized successfully');
+        console.log('App instance:', window.genkaiApp);
+    } catch (error) {
+        console.error('Failed to initialize GenkaiRAGApp:', error);
+        console.error('Error stack:', error.stack);
+    }
 });

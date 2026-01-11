@@ -51,8 +51,8 @@ class RAGEngine:
         self,
         llm_manager: LLMManager,
         document_processor: DocumentProcessor,
-        similarity_threshold: float = 0.7,
-        max_retrieved_docs: int = 10,
+        similarity_threshold: float = 0.6,  # 閾値を下げて、より多くの関連文書を取得
+        max_retrieved_docs: int = 15,  # 検索文書数を増加
         max_context_docs: int = 5,
         system_monitor: Optional[Any] = None
     ):
@@ -332,19 +332,68 @@ class RAGEngine:
             # プロンプトを構築
             prompt = self._build_generation_prompt(question, context_docs, chat_history)
             
+            # 質問の種類に応じてパラメータを調整
+            question_lower = question.lower()
+            
+            # 技術的な質問や手順説明の場合は温度を下げて正確性を重視
+            if any(word in question_lower for word in ["方法", "手順", "コマンド", "設定", "エラー", "インストール"]):
+                temperature = 0.3
+                max_tokens = 3072
+            # 概念説明や一般的な質問の場合は少し温度を上げて自然な回答を生成
+            elif any(word in question_lower for word in ["とは", "について", "説明", "概要"]):
+                temperature = 0.5
+                max_tokens = 2048
+            else:
+                temperature = 0.4
+                max_tokens = 2048
+            
             # LLMで回答を生成
             response = self.llm_manager.generate_response(
                 prompt=prompt,
                 model_name=model_name,
-                temperature=0.7,
-                max_tokens=2048
+                temperature=temperature,
+                max_tokens=max_tokens
             )
             
-            return response.strip()
+            # 回答の後処理
+            cleaned_response = self._post_process_response(response.strip())
+            
+            return cleaned_response
             
         except Exception as e:
             logger.error(f"Response generation failed: {e}")
-            return f"申し訳ございませんが、回答の生成中にエラーが発生しました: {str(e)}"
+            return f"申し訳ございませんが、回答の生成中にエラーが発生しました。もう一度お試しください。"
+    
+    def _post_process_response(self, response: str) -> str:
+        """
+        生成された回答の後処理
+        
+        Args:
+            response: 生成された回答
+            
+        Returns:
+            後処理された回答
+        """
+        # 不要な前置きを削除
+        prefixes_to_remove = [
+            "以下の参考文書の情報に基づいて回答します：",
+            "参考文書の内容から、",
+            "提供された文書に基づいて、",
+            "文書の情報によると、"
+        ]
+        
+        for prefix in prefixes_to_remove:
+            if response.startswith(prefix):
+                response = response[len(prefix):].strip()
+        
+        # 改行の正規化
+        response = response.replace('\n\n\n', '\n\n')
+        
+        # 空の行を削除
+        lines = response.split('\n')
+        cleaned_lines = [line for line in lines if line.strip()]
+        
+        return '\n'.join(cleaned_lines)
     
     def _build_contextual_query(self, question: str, chat_history: Optional[List[ChatMessage]]) -> str:
         """
@@ -397,15 +446,26 @@ class RAGEngine:
         Returns:
             構築されたプロンプト
         """
-        # システムプロンプト
-        system_prompt = """あなたは九州大学情報基盤研究開発センターのスーパーコンピュータ玄界システムの専門アシスタントです。
-以下の文書情報を参考にして、ユーザーの質問に正確で分かりやすい日本語で回答してください。
+        # 改善されたシステムプロンプト
+        system_prompt = """あなたは九州大学情報基盤研究開発センターのスーパーコンピュータ「玄界システム」の専門サポートアシスタントです。
 
-回答の際は以下の点に注意してください：
-1. 提供された文書の情報のみを使用してください
-2. 文書に記載されていない情報については推測せず、「文書に記載されていません」と明記してください
-3. 技術的な内容は具体例を交えて説明してください
-4. 回答の最後に参考にした文書のセクションを明記してください"""
+【あなたの役割】
+- 玄界システムの利用者に対して、正確で実用的な情報を提供する
+- 技術的な質問に対して、具体的で分かりやすい回答をする
+- システムの利用方法、設定、トラブルシューティングをサポートする
+
+【回答の指針】
+1. **正確性**: 提供された文書の情報のみを使用し、推測や憶測は避ける
+2. **具体性**: 手順やコマンドは具体的に示し、実際に使える形で提供する
+3. **分かりやすさ**: 技術用語は必要に応じて説明を加える
+4. **実用性**: ユーザーが実際に行動できるような情報を含める
+5. **構造化**: 情報を整理して、読みやすい形で提示する
+
+【回答形式】
+- 重要なポイントは箇条書きで整理する
+- コマンドやファイル名は明確に区別する
+- 手順がある場合は番号付きリストを使用する
+- 文書に記載されていない情報については「文書に記載されていません」と明記する"""
         
         # コンテキスト文書を整理
         context_parts = []
@@ -413,29 +473,48 @@ class RAGEngine:
             doc_content = doc_node.node.text
             doc_metadata = doc_node.node.metadata
             
-            section_info = ""
-            if "title" in doc_metadata:
-                section_info += f"タイトル: {doc_metadata['title']}\n"
-            if "section" in doc_metadata:
-                section_info += f"セクション: {doc_metadata['section']}\n"
-            if "url" in doc_metadata:
-                section_info += f"URL: {doc_metadata['url']}\n"
+            # メタデータ情報を整理
+            metadata_info = []
+            if "title" in doc_metadata and doc_metadata["title"]:
+                metadata_info.append(f"タイトル: {doc_metadata['title']}")
+            if "section" in doc_metadata and doc_metadata["section"]:
+                metadata_info.append(f"セクション: {doc_metadata['section']}")
+            if "url" in doc_metadata and doc_metadata["url"]:
+                metadata_info.append(f"URL: {doc_metadata['url']}")
             
-            context_parts.append(f"【文書{i}】\n{section_info}内容: {doc_content}\n")
+            metadata_str = " | ".join(metadata_info) if metadata_info else "メタデータなし"
+            
+            context_parts.append(f"【文書{i}】({metadata_str})\n{doc_content.strip()}")
         
-        context_str = "\n".join(context_parts) if context_parts else "関連する文書が見つかりませんでした。"
+        context_str = "\n\n".join(context_parts) if context_parts else "関連する文書が見つかりませんでした。一般的な知識で回答してください。"
         
-        # 会話履歴を含める
+        # 会話履歴を含める（より詳細に）
         history_str = ""
-        if chat_history:
-            recent_history = chat_history[-2:]  # 最新2つの交換
+        if chat_history and len(chat_history) > 0:
+            recent_history = chat_history[-4:]  # 最新4つのメッセージ
             history_parts = []
             for message in recent_history:
-                role_label = "ユーザー" if message.role == "user" else "アシスタント"
-                history_parts.append(f"{role_label}: {message.content}")
+                role_label = "ユーザー" if message.role.value == "user" else "アシスタント"
+                # メッセージを短縮（長すぎる場合）
+                content = message.content
+                if len(content) > 200:
+                    content = content[:200] + "..."
+                history_parts.append(f"{role_label}: {content}")
             
             if history_parts:
-                history_str = f"\n\n【会話履歴】\n" + "\n".join(history_parts)
+                history_str = f"\n\n【会話履歴（参考）】\n" + "\n".join(history_parts)
+        
+        # 質問の種類を分析してヒントを追加
+        question_hints = ""
+        question_lower = question.lower()
+        if any(word in question_lower for word in ["方法", "やり方", "手順", "how"]):
+            question_hints = "\n※ 手順や方法について質問されています。具体的なステップを示してください。"
+        elif any(word in question_lower for word in ["エラー", "問題", "トラブル", "error"]):
+            question_hints = "\n※ トラブルシューティングについて質問されています。原因と解決策を示してください。"
+        elif any(word in question_lower for word in ["設定", "config", "configuration"]):
+            question_hints = "\n※ 設定について質問されています。具体的な設定値や設定ファイルを示してください。"
+        elif any(word in question_lower for word in ["とは", "what", "について"]):
+            question_hints = "\n※ 概念や定義について質問されています。分かりやすく説明してください。"
         
         # 最終プロンプト
         prompt = f"""{system_prompt}
@@ -444,9 +523,12 @@ class RAGEngine:
 {context_str}{history_str}
 
 【質問】
-{question}
+{question}{question_hints}
 
-【回答】"""
+【回答】
+以下の参考文書の情報に基づいて回答します：
+
+"""
         
         return prompt
     
